@@ -78,6 +78,13 @@
       if (trunc === '1') { st.whiteSpace = 'nowrap'; st.textOverflow = 'ellipsis'; st.overflow = 'hidden'; }
     }
     if (av === 'C' && ar !== 'W') { st.display = 'flex'; st.alignItems = 'center'; st.height = px(h); if (ah === 'C') st.justifyContent = 'center'; }
+    // 오늘의 코스 개수 배지: 그림 속 배지(30pt)를 덮는 큰 배지(36pt)에 흰 숫자
+    if (it.s === 'nd_cnt') {
+      const d = 36, cx = x + w / 2, cy = y + h / 2 - 1.5;
+      Object.assign(st, { left: px(cx - d / 2), top: px(cy - d / 2), width: px(d), height: px(d), minHeight: px(d), borderRadius: '50%', transform: 'none',
+        background: '#1ea94a', boxShadow: `inset 0 0 0 ${px(1.2)} #bcfed1, 0 ${px(2.5)} 0 #167832`, color: '#fff', fontSize: px(17), lineHeight: '1', paddingTop: px(1) });
+      t.classList.add('cnt');
+    }
     binds.texts.push({ e: t, v: it.v });
     return t;
   }
