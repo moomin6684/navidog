@@ -141,6 +141,13 @@ footer{font-size:12px;color:#8a9a8f}
 body.mobile{gap:0;background:#FFF9EC;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 body.mobile header,body.mobile footer{display:none}
 body.mobile #stage{border-radius:0;box-shadow:none}
+.dog{position:absolute;pointer-events:none}
+.dog-pl{position:absolute;left:0;top:0;width:100%;height:100%}
+.dog-win{position:absolute;overflow:hidden}
+.dog-strip{position:absolute;left:0;top:0;height:100%}
+.dog-strip{background-size:100% 100%;background-repeat:no-repeat;animation-name:dogloop;animation-iteration-count:infinite;will-change:transform}
+@keyframes dogloop{to{transform:translateX(-100%)}}
+@media (prefers-reduced-motion:reduce){.dog-strip{animation:none}}
 </style>
 </head>
 <body>
@@ -149,9 +156,9 @@ body.mobile #stage{border-radius:0;box-shadow:none}
 <header><h1>내비독</h1><span>강아지 산책 코스 내비게이션 · 프로토타입</span><button id="restart">처음부터</button></header>
 <div id="stage"><div id="device"></div></div>
 <footer>화면을 눌러 보세요. 누를 수 있는 곳이 파랗게 표시돼요. 지도는 끌어서 옮기고, 휠·핀치·두 번 클릭으로 확대할 수 있어요.</footer>
-<script src="data.js?v=6"></script>
-<script src="map/maps.js?v=6"></script>
-<script src="lqip.js?v=6"></script>
-<script src="player.js?v=6"></script>
+<script src="data.js?v=7"></script>
+<script src="map/maps.js?v=7"></script>
+<script src="lqip.js?v=7"></script>
+<script src="player.js?v=7"></script>
 </body>
 </html>

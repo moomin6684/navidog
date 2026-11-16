@@ -77,7 +77,7 @@
       if (ar !== 'H') { st.height = px(h); st.overflow = 'hidden'; }
       if (trunc === '1') { st.whiteSpace = 'nowrap'; st.textOverflow = 'ellipsis'; st.overflow = 'hidden'; }
     }
-    if (av === 'C' && ar !== 'W') { st.display = 'flex'; st.alignItems = 'center'; st.height = px(h); }
+    if (av === 'C' && ar !== 'W') { st.display = 'flex'; st.alignItems = 'center'; st.height = px(h); if (ah === 'C') st.justifyContent = 'center'; }
     binds.texts.push({ e: t, v: it.v });
     return t;
   }
@@ -121,14 +121,30 @@
   // 항목 목록을 컨테이너에 그린다
   function renderItems(items, parent, binds, ctx, cw) {
     // 이미지 조각(표시 전환·스크롤)을 먼저, 글자와 누르는 영역은 그 위에
-    const rank = (it) => (it.k === 'v' || it.k === 's' ? 0 : 1);
+    const rank = (it) => (it.k === 'a' ? -1 : it.k === 'v' || it.k === 's' ? 0 : 1);
     items = items.map((it, i) => [it, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map((x) => x[0]);
     for (const it of items) {
-      if (it.k === 't') parent.appendChild(textNode(it, binds, cw));
+      if (it.k === 'a') parent.appendChild(dogAnim(it));
+      else if (it.k === 't') parent.appendChild(textNode(it, binds, cw));
       else if (it.k === 'h') parent.appendChild(hotspot(it, ctx));
       else if (it.k === 'v') parent.appendChild(visBox(it, binds, ctx));
       else if (it.k === 's') parent.appendChild(scrollBox(it, binds, ctx));
     }
+  }
+  // 강아지 루프 애니메이션: 강아지를 지운 바탕(plate) 위에 초당 12프레임 그림띠를 넘긴다
+  function dogAnim(it) {
+    const M = (D.ANIM || {})[it.p];
+    if (!M) return el('div');
+    const [x, y, w, h] = it.b;
+    const box = el('div', 'dog', { left: px(x), top: px(y), width: px(w), height: px(h) });
+    const pl = el('img', 'dog-pl'); pl.src = 'img/anim/plate-' + it.pl + '.webp'; pl.alt = ''; pl.draggable = false;
+    // sb: 그림띠 상자가 바탕 상자와 다를 때(배치에서 그림이 확대된 포즈)
+    const [sx, sy, sw, sh] = it.sb || it.b;
+    const win = el('div', 'dog-win', { left: px(sx - x), top: px(sy - y), width: px(sw), height: px(sh) });
+    const strip = el('div', 'dog-strip', { width: px(sw * M.frames), backgroundImage: 'url(img/anim/' + M.file + ')', animationDuration: M.frames / M.fps + 's', animationTimingFunction: 'steps(' + M.frames + ')' });
+    win.appendChild(strip);
+    box.append(pl, win);
+    return box;
   }
   function visBox(it, binds, ctx) {
     const [x, y, w, h] = it.b;
