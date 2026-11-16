@@ -141,11 +141,22 @@
     // sb: 그림띠 상자가 바탕 상자와 다를 때(배치에서 그림이 확대된 포즈)
     const [sx, sy, sw, sh] = it.sb || it.b;
     const win = el('div', 'dog-win', { left: px(sx - x), top: px(sy - y), width: px(sw), height: px(sh) });
-    const strip = el('div', 'dog-strip', { width: px(sw * M.frames), backgroundImage: 'url(img/anim/' + M.file + ')', animationDuration: M.frames / M.fps + 's', animationTimingFunction: 'steps(' + M.frames + ')' });
+    // 넓은 띠를 CSS 이동 애니메이션으로 밀면 일부 휴대폰(사파리)에서 그림이 멈추거나 사라진다 → 칸 크기 그대로 두고 그림 위치만 프레임마다 바꾼다
+    const strip = el('div', 'dog-strip', { width: px(sw), backgroundImage: 'url(img/anim/' + M.file + ')', backgroundSize: (M.frames * 100) + '% 100%' });
+    strip.dataset.n = M.frames; strip.dataset.fps = M.fps; strip.dataset.w = sw;
     win.appendChild(strip);
     box.append(pl, win);
     return box;
   }
+  // 화면에 있는 모든 강아지 그림띠를 한 시계로 넘긴다(복제된 전환용 화면 포함)
+  const dogStrips = document.getElementsByClassName('dog-strip');
+  (function dogTick(now) {
+    for (const s of dogStrips) {
+      const n = +s.dataset.n, f = Math.floor(now / 1000 * s.dataset.fps) % n;
+      if (s.dogF !== f) { s.dogF = f; s.style.backgroundPosition = (-f * s.dataset.w) + 'px 0'; }
+    }
+    requestAnimationFrame(dogTick);
+  })(performance.now());
   function visBox(it, binds, ctx) {
     const [x, y, w, h] = it.b;
     const box = el('div', 'vis', { left: px(x), top: px(y), width: px(w), height: px(h) });
@@ -360,18 +371,32 @@
     // 손가락 조작
     const local = (e) => { const r = box.getBoundingClientRect(), k = ctx.scale(); return [(e.clientX - r.left) / k, (e.clientY - r.top) / k]; };
     const pts = new Map(); let last = null, moved = false, vel = [], lastTap = null, multi = false, downAt = 0;
+    // 한 손가락 확대: 두 번째로 누른 채 아래로 끌면 확대, 위로 끌면 축소(지도 앱과 같은 방향)
+    let qz = null;
     const center = () => { const a = [...pts.values()]; return a.length === 1 ? [a[0][0], a[0][1], 0] : [(a[0][0] + a[1][0]) / 2, (a[0][1] + a[1][1]) / 2, Math.hypot(a[0][0] - a[1][0], a[0][1] - a[1][1])]; };
     function down(e) {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       stop(); pts.set(e.pointerId, local(e));
-      if (pts.size === 1) { moved = false; multi = false; vel = []; downAt = performance.now(); }
-      if (pts.size === 2) multi = true;
+      if (pts.size === 1) {
+        moved = false; multi = false; vel = []; downAt = performance.now(); qz = null;
+        const [x0, y0] = pts.get(e.pointerId);
+        if (lastTap && downAt - lastTap.t < 320 && Math.hypot(x0 - lastTap.x, y0 - lastTap.y) < 40) { qz = { x: lastTap.x, y: lastTap.y, y0, s0: cam.s, tx0: cam.tx, ty0: cam.ty, on: false }; lastTap = null; }
+      }
+      if (pts.size === 2) { multi = true; qz = null; }
       last = center(); box.classList.add('moving');
       window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
     }
     function move(e) {
       if (!pts.has(e.pointerId)) return;
       pts.set(e.pointerId, local(e));
+      if (qz) {
+        const dy = pts.get(e.pointerId)[1] - qz.y0;
+        if (!qz.on && Math.abs(dy) < 6) return;
+        if (!qz.on) { qz.on = true; moved = true; unfollow(); }
+        const s2 = Math.min(sMax * 1.25, Math.max(sMin * 0.8, qz.s0 * Math.exp(dy * 0.012)));
+        cam.s = s2; cam.tx = qz.x - (qz.x - qz.tx0) * (s2 / qz.s0); cam.ty = qz.y - (qz.y - qz.ty0) * (s2 / qz.s0);
+        clampCam(true); apply(); return;
+      }
       const c = center();
       if (pts.size >= 2 && last[2]) zoomAt(c[0], c[1], c[2] / last[2], true);
       const dx = c[0] - last[0], dy = c[1] - last[1];
@@ -387,6 +412,7 @@
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
       box.classList.remove('moving');
       const now = performance.now(), [lx, ly] = last;
+      if (qz) { const q = qz; qz = null; if (q.on) { settle(); return; } unfollow(); zoomAnim(q.x, q.y, 2); return; } // 두 번 톡(끌지 않음): 확대
       if (!moved) {
         if (multi && now - downAt < 300) { zoomAnim(w / 2, h / 2, 0.5); return; }       // 두 손가락 톡: 축소
         if (lastTap && now - lastTap.t < 320 && Math.hypot(lx - lastTap.x, ly - lastTap.y) < 30) { lastTap = null; unfollow(); zoomAnim(lx, ly, 2); return; } // 두 번 톡: 확대
@@ -679,6 +705,10 @@
   }
   const isBackTap = (t) => t && t.x < 80 && t.y > 40 && t.y < 130 && t.w <= 64;
   const isCtaTap = (t) => t && t.y >= 640 && t.w >= 200;
+  // 우리 강아지 설정 단계(머리글 오른쪽 발자국 3개 = 진행 단계)
+  const STEP_NAMES = { 'S00 · 강아지 크기': 1, 'S00 · 나이와 건강': 2, 'S00 · 추천 기준 확인': 3 };
+  const stepOf = (id) => (S[id] && STEP_NAMES[S[id].n]) || 0;
+  const STEP_HDR = 124, STEP_PAW = [[313, 73, 23, 23], [333, 73, 23, 23], [353, 73, 23, 23]];
 
   // ---------- 코스 카드 묶음 ----------
   const RES = /^(S01 · (오늘의 코스|넘기기|필터 결과)|PR · )/;
@@ -708,7 +738,8 @@
   function cardBand(id, other) {
     const find = (sid) => { if (!sid || !S[sid]) return null; for (const it of S[sid].c) if (it.k === 'h' && (it.r || []).some((k) => A[k] && A[k].tg.t === 'ON_DRAG')) return it.b; return null; };
     const b = find(id) || find(other) || [12, 302, 369, 397];
-    return [Math.max(0, b[1] + 2), Math.min(H, b[1] + b[3] - 8)];
+    // 띠 위 경계는 카드 위 깨끗한 바탕 줄에, 아래는 카드 테두리 밑 그림자까지 덮고 끝 7px을 흐리게 지운다(그림자를 딱 자르면 넘길 때 가로선이 남는다)
+    return [Math.max(0, b[1] + 3), Math.min(H, b[1] + b[3] - 5.8)];
   }
   // 넘기는 띠: 화면 전체 폭으로 카드 높이만큼 잘라 낸 그림을 가로로 이어 붙인다
   function makeBand(y0, y1, parts) {
@@ -819,7 +850,31 @@
       settled(anim(panel, [{ transform: 'translate3d(0,' + dy + 'px,0)' }, { transform: 'translate3d(0,100%,0)' }], 300, EASE_IO)).then(done);
       return;
     }
-    if (k === 'push' || k === 'pop') {
+    if ((k === 'push' || k === 'pop') && stepOf(prev.id) && stepOf(next.id) && stepOf(prev.id) !== stepOf(next.id)) {
+      // 우리 강아지 1~3단계: 머리글(뒤로·제목·발자국)은 그대로 두고 아래 내용만 짧게 밀며 바꾼다.
+      // 바뀐 발자국은 앞으로 갈 때 톡 채워지고, 뒤로 갈 때 작아지며 빠진다.
+      const a = stepOf(prev.id), b = stepOf(next.id), fwd = b > a, sgn = fwd ? 1 : -1, ms = 340;
+      const clip = (y0, y1, x0, x1) => 'inset(' + y0 + 'px ' + (W - x1) + 'px ' + (H - y1) + 'px ' + x0 + 'px)';
+      const layer = (root, cp, z) => { const c = root.cloneNode(true); c.style.cssText += ';transform:none;opacity:1;z-index:' + z + ';clip-path:' + cp; c.querySelectorAll('.ripple,.dim').forEach((r) => r.remove()); device.appendChild(c); return c; };
+      [prev.root, next.root].forEach((r) => { r.style.clipPath = clip(STEP_HDR, H, 0, W); });
+      prev.root.style.zIndex = 1; next.root.style.zIndex = 2;
+      const head = layer((fwd ? prev : next).root, clip(0, STEP_HDR, 0, W), 3);
+      const pops = [];
+      for (let i = Math.min(a, b) + 1; i <= Math.max(a, b); i++) {
+        const [px0, py0, pw, ph] = STEP_PAW[i - 1], p = layer((fwd ? next : prev).root, clip(py0, py0 + ph, px0, px0 + pw), 4);
+        p.style.transformOrigin = (px0 + pw / 2) + 'px ' + (py0 + ph / 2) + 'px';
+        pops.push(anim(p, fwd ? [{ transform: 'scale(.2)', opacity: 0 }, { transform: 'scale(1.3)', opacity: 1, offset: 0.6 }, { transform: 'none', opacity: 1 }]
+          : [{ transform: 'none', opacity: 1 }, { transform: 'scale(.2)', opacity: 0 }], fwd ? 460 : 260, fwd ? 'cubic-bezier(.3,1.4,.5,1)' : EASE_IO));
+        if (!REDUCE) pops[pops.length - 1].effect.updateTiming({ delay: fwd ? 90 : 0 });
+      }
+      anim(prev.root, [{ transform: 'none', opacity: 1 }, { transform: 'translate3d(' + (-sgn * 56) + 'px,0,0)', opacity: 0 }], ms * 0.8, EASE_IO);
+      const enter = anim(next.root, [{ transform: 'translate3d(' + (sgn * 56) + 'px,0,0)', opacity: 0 }, { transform: 'none', opacity: 1 }], ms);
+      Promise.all([enter].concat(pops).map(settled)).then(() => {
+        head.remove(); pops.forEach((p) => p.effect.target.remove());
+        [prev.root, next.root].forEach((r) => { r.getAnimations().forEach((x) => x.cancel()); r.style.clipPath = ''; });
+        done();
+      });
+    } else if (k === 'push' || k === 'pop') {
       const fwd = k === 'push', top = fwd ? next.root : prev.root, under = fwd ? prev.root : next.root;
       top.style.zIndex = 2; under.style.zIndex = 1; top.classList.add('lift');
       const dim = el('div', 'dim'); under.appendChild(dim);
