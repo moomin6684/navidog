@@ -98,15 +98,17 @@
     let sx = 0, sy = 0, down = false, fired = false;
     e.addEventListener('pointerdown', (ev2) => { down = true; fired = false; sx = ev2.clientX; sy = ev2.clientY; if (drag.length) e.setPointerCapture(ev2.pointerId); });
     e.addEventListener('pointermove', (ev2) => {
-      if (!down || fired || !drag.length) return;
+      if (!down || fired || !drag.length || ctx.swipe) return;
       if (Math.hypot(ev2.clientX - sx, ev2.clientY - sy) > 14 * ctx.scale()) { fired = true; drag.forEach((a) => run(a.a)); }
     });
     e.addEventListener('pointerup', () => { down = false; });
     e.addEventListener('click', (ev2) => {
       ev2.stopPropagation();
       if (fired) return;
+      tapAt = devRect(e);
       if (click.length) click.forEach((a) => run(a.a));
       else if (drag.length) drag.forEach((a) => run(a.a)); // 데스크톱 클릭으로도 넘길 수 있게
+      tapAt = null;
     });
   }
 
@@ -421,14 +423,21 @@
     const timeouts = (sc.r || []).map((k) => A[k]).filter((a) => a.tg.t === 'AFTER_TIMEOUT');
     const clicks = (sc.r || []).filter((k) => A[k].tg.t !== 'AFTER_TIMEOUT');
     if (clicks.length) { const hs = el('div', 'hot full', { left: 0, top: 0, width: px(sc.w), height: px(sc.h) }); attachReactions(hs, clicks, ctx); root.insertBefore(hs, root.firstChild.nextSibling); }
-    return { id, root, binds, ctx, timeouts };
+    const scr = { id, root, binds, ctx, timeouts };
+    if (isCard(id) && (cardNeighbors(id).next || cardNeighbors(id).prev)) ctx.swipe = true;
+    return scr;
   }
   function flashHotspots(root) {
     root.classList.remove('flash'); void root.offsetWidth; root.classList.add('flash');
   }
   function refresh(scr) {
     for (const t of scr.binds.texts) { const v = fmt(vars[t.v]); if (t.e.textContent !== v) t.e.textContent = v; }
-    for (const b of scr.binds.vis) b.e.style.display = vars[b.v] ? '' : 'none';
+    for (const b of scr.binds.vis) {
+      const on = !!vars[b.v], was = b.e.style.display !== 'none';
+      b.e.style.display = on ? '' : 'none';
+      // 이미 보이는 화면에서 새로 나타나는 요소(선택 표시·안내 문구)는 살짝 떠오르며 나타난다
+      if (on && !was && scr.mounted && !REDUCE) b.e.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: EASE });
+    }
   }
 
   // ---------- 이미지 미리 불러오기 ----------
@@ -492,39 +501,196 @@
     return root;
   }
 
+  // ---------- 움직임 공통 ----------
+  const REDUCE = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const EASE = 'cubic-bezier(.22,.8,.24,1)';          // 앱처럼 빠르게 출발해 부드럽게 멈춤
+  const EASE_IO = 'cubic-bezier(.4,0,.2,1)';
+  const dur = (ms) => (REDUCE ? Math.min(ms, 120) : ms);
+  const anim = (e, kf, ms, easing) => e.animate(kf, { duration: dur(ms), easing: easing || EASE, fill: 'both' });
+  const settled = (a) => a.finished.catch(() => {});
+  // 마지막으로 누른 곳(기기 좌표) — 뒤로 가기 버튼인지, 아래 큰 버튼인지 판단한다
+  let tapAt = null;
+  function devRect(t) {
+    const r = t.getBoundingClientRect(), d = device.getBoundingClientRect();
+    return { x: (r.left - d.left) / scale, y: (r.top - d.top) / scale, w: r.width / scale, h: r.height / scale };
+  }
+  const isBackTap = (t) => t && t.x < 80 && t.y > 40 && t.y < 130 && t.w <= 64;
+  const isCtaTap = (t) => t && t.y >= 640 && t.w >= 200;
+
+  // ---------- 코스 카드 묶음 ----------
+  const RES = /^(S01 · (오늘의 코스|넘기기|필터 결과)|PR · )/;
+  const isCard = (id) => !!S[id] && RES.test(S[id].n);
+  const cardIdx = (id) => { const n = S[id].n; if (/E08/.test(n)) return 99; const m = n.match(/(\d+)번째/); return m ? +m[1] : 1; };
+  const fam = (id) => { const f = S[id].n.split(' · ')[0]; return f === 'PR' ? 'S01' : f === 'PF' ? 'S02' : f; };
+  const nbCache = new Map();
+  // 이 카드 화면에서 손가락으로 넘길 이전·다음 카드와 그때 실행할 반응(프로토타입의 < > 버튼·끌기와 같은 것)
+  function cardNeighbors(id) {
+    if (nbCache.has(id)) return nbCache.get(id);
+    const me = cardIdx(id), out = { next: null, prev: null };
+    const firstNav = (acts) => { for (const a of acts || []) { if (a.t === 'NODE' && a.n === 'NAVIGATE' && a.d) return a.d; if (a.t === 'CONDITIONAL') { const d = firstNav(a.cb[0] && a.cb[0].a); if (d) return d; } } return null; };
+    const consider = (k) => {
+      const a = A[k]; if (!a || (a.tg.t !== 'ON_CLICK' && a.tg.t !== 'ON_DRAG')) return;
+      const d = firstNav(a.a); if (!d || !isCard(d) || d === id) return;
+      const di = cardIdx(d); if (di === me) return;
+      const drag = a.tg.t === 'ON_DRAG';
+      if (di > me) { if (!out.next || di < out.next.i || (di === out.next.i && drag)) out.next = { d, k, i: di }; }
+      else if (!out.prev || di > out.prev.i) out.prev = { d, k, i: di };
+    };
+    const walk = (c) => { for (const it of c || []) { (it.r || []).forEach(consider); walk(it.c); } };
+    walk(S[id].c); (S[id].r || []).forEach(consider);
+    nbCache.set(id, out);
+    return out;
+  }
+  // 카드가 차지하는 세로 범위(넘기는 띠). 끌기 반응이 걸린 카드 영역을 쓴다.
+  function cardBand(id, other) {
+    const find = (sid) => { if (!sid || !S[sid]) return null; for (const it of S[sid].c) if (it.k === 'h' && (it.r || []).some((k) => A[k] && A[k].tg.t === 'ON_DRAG')) return it.b; return null; };
+    const b = find(id) || find(other) || [12, 302, 369, 397];
+    return [Math.max(0, b[1] + 2), Math.min(H, b[1] + b[3] - 8)];
+  }
+  // 넘기는 띠: 화면 전체 폭으로 카드 높이만큼 잘라 낸 그림을 가로로 이어 붙인다
+  function makeBand(y0, y1, parts) {
+    const band = el('div', 'swipe-band', { top: px(y0), height: px(y1 - y0) });
+    const track = el('div', 'swipe-track');
+    for (const [root, off] of parts) {
+      const c = root.cloneNode(true);
+      c.style.cssText += ';position:absolute;top:' + px(-y0) + ';left:' + px(off) + ';transform:none;opacity:1;z-index:auto';
+      c.querySelectorAll('.ripple').forEach((r) => r.remove());
+      track.appendChild(c);
+    }
+    band.appendChild(track); device.appendChild(band);
+    return { band, track, set: (x) => { track.style.transform = 'translate3d(' + x + 'px,0,0)'; } };
+  }
+  let swipeHint = null, swiping = false;
+  function enableSwipe(scr) {
+    const { root, id } = scr, nb = cardNeighbors(id), [y0, y1] = cardBand(id);
+    let st = null, eatClick = false;
+    const local = (e) => { const d = device.getBoundingClientRect(); return [(e.clientX - d.left) / scale, (e.clientY - d.top) / scale]; };
+    root.addEventListener('pointerdown', (e) => {
+      if (current !== scr || swiping || overlays.length || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      const [, y] = local(e); if (y < y0 || y > y1) return;
+      st = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, on: false, d: 0, v: [] };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+    }, true);
+    const move = (e) => {
+      if (!st || e.pointerId !== st.pid) return;
+      const dx = (e.clientX - st.x0) / scale, dy = (e.clientY - st.y0) / scale;
+      if (!st.on) {
+        if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+          st.on = true; swiping = true;
+          try { root.setPointerCapture(e.pointerId); } catch (er) {}
+          const parts = [[root, 0]];
+          for (const [k, off] of [['next', W], ['prev', -W]]) if (nb[k]) { const n = buildScreen(nb[k].d); refresh(n); parts.push([n.root, off]); }
+          st.fx = makeBand(y0, y1, parts);
+          st.x0 = e.clientX;
+        } else if (Math.abs(dy) > 14) { st = null; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); }
+        return;
+      }
+      let d = (e.clientX - st.x0) / scale;
+      if ((d < 0 && !nb.next) || (d > 0 && !nb.prev)) d = Math.sign(d) * Math.min(70, Math.abs(d) * 0.32); // 끝에서는 고무줄처럼
+      st.d = d; st.fx.set(d);
+      st.v.push([performance.now(), d]); if (st.v.length > 5) st.v.shift();
+    };
+    const up = (e) => {
+      if (!st || e.pointerId !== st.pid) return;
+      const s = st; st = null;
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+      if (!s.on) return;
+      eatClick = true; setTimeout(() => { eatClick = false; }, 60);
+      const v = s.v.length > 1 ? (s.v[s.v.length - 1][1] - s.v[0][1]) / Math.max(1, s.v[s.v.length - 1][0] - s.v[0][0]) : 0;
+      let dir = 0;
+      if (nb.next && (s.d < -W * 0.2 || (v < -0.35 && s.d < -10))) dir = 1;
+      else if (nb.prev && (s.d > W * 0.2 || (v > 0.35 && s.d > 10))) dir = -1;
+      if (!dir) {
+        const a = anim(s.fx.track, [{ transform: 'translate3d(' + s.d + 'px,0,0)' }, { transform: 'none' }], 320);
+        settled(a).then(() => { s.fx.band.remove(); swiping = false; });
+        return;
+      }
+      if (navigator.vibrate) navigator.vibrate(6);
+      swipeHint = { fx: s.fx, d: s.d, dir };
+      run(A[nb[dir > 0 ? 'next' : 'prev'].k].a);
+      if (swipeHint) { s.fx.band.remove(); swipeHint = null; swiping = false; }
+    };
+    root.addEventListener('click', (e) => { if (eatClick) { e.stopPropagation(); e.preventDefault(); eatClick = false; } }, true);
+  }
+  // PC: 키보드 ← → 로 카드 넘기기
+  window.addEventListener('keydown', (e) => {
+    if (!current || !current.id || !isCard(current.id) || overlays.length || swiping) return;
+    const nb = cardNeighbors(current.id), t = e.key === 'ArrowRight' ? nb.next : e.key === 'ArrowLeft' ? nb.prev : null;
+    if (t) { e.preventDefault(); run(A[t.k].a); }
+  });
+
   // ---------- 탐색 ----------
   const stage = document.getElementById('stage');
   const device = document.getElementById('device');
   let scale = 1;
   let current = null; const hist = []; const overlays = [];
-  function show(id, tr, skel) {
+  // 화면 바꾸기. mode: fade · push(앞으로) · pop(뒤로) · slide(카드 넘기기) · rise(로딩 뒤 결과)
+  function mount(next, mode, skel) {
+    device.appendChild(next.root);
+    const prev = current;
+    current = next;
+    if (prev) (prev.timers || []).forEach(clearTimeout);
+    const gone = [prev && prev.root, skel].filter(Boolean);
+    const done = () => { gone.forEach((g) => g.remove()); next.root.style.zIndex = ''; next.root.classList.remove('lift'); };
+    const k = prev && mode ? mode.k : null;
+    if (!k) { done(); return; }
+    if (skel && (k === 'push' || k === 'pop' || k === 'slide')) mode = { k: 'fade', ms: 200 };
+    if (k === 'push' || k === 'pop') {
+      const fwd = k === 'push', top = fwd ? next.root : prev.root, under = fwd ? prev.root : next.root;
+      top.style.zIndex = 2; under.style.zIndex = 1; top.classList.add('lift');
+      const dim = el('div', 'dim'); under.appendChild(dim);
+      const ms = 380;
+      anim(top, fwd ? [{ transform: 'translate3d(100%,0,0)' }, { transform: 'none' }] : [{ transform: 'none' }, { transform: 'translate3d(100%,0,0)' }], ms);
+      anim(under, fwd ? [{ transform: 'none' }, { transform: 'translate3d(-28%,0,0)' }] : [{ transform: 'translate3d(-28%,0,0)' }, { transform: 'none' }], ms);
+      settled(anim(dim, fwd ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], ms)).then(() => {
+        dim.remove(); [top, under].forEach((r) => r.getAnimations().forEach((a) => a.cancel())); top.classList.remove('lift'); done();
+      });
+    } else if (mode.k === 'slide') {
+      const [y0, y1] = cardBand(prev.id, next.id), dir = mode.dir;
+      const fx = mode.fx || makeBand(y0, y1, [[prev.root, 0], [next.root, dir * W]]);
+      fx.band.style.zIndex = 5;
+      const from = mode.d || 0, ms = mode.fx ? 300 : 420;
+      next.root.style.zIndex = 2;
+      anim(next.root, [{ opacity: 0 }, { opacity: 1 }], 180, EASE_IO);
+      settled(anim(fx.track, [{ transform: 'translate3d(' + from + 'px,0,0)' }, { transform: 'translate3d(' + (-dir * W) + 'px,0,0)' }], ms)).then(() => {
+        fx.band.remove(); next.root.getAnimations().forEach((a) => a.cancel()); swiping = false; done();
+      });
+    } else if (mode.k === 'rise') {
+      next.root.style.zIndex = 2;
+      settled(anim(next.root, [{ opacity: 0, transform: 'translate3d(0,22px,0) scale(.985)' }, { opacity: 1, transform: 'none' }], 460)).then(() => { next.root.getAnimations().forEach((a) => a.cancel()); done(); });
+    } else {
+      next.root.style.zIndex = 2;
+      settled(anim(next.root, [{ opacity: 0 }, { opacity: 1 }], mode.ms || 220, EASE_IO)).then(() => { next.root.getAnimations().forEach((a) => a.cancel()); done(); });
+    }
+  }
+  function show(id, mode, skel) {
     if (!S[id]) return;
     const next = buildScreen(id);
     refresh(next);
-    device.appendChild(next.root);
+    mount(next, mode, skel);
     next.ctx.afterMount.forEach((f) => f());
-    const prev = current;
-    current = next;
-    const gone = [prev && prev.root, skel].filter(Boolean);
-    if (prev) prev.timers && prev.timers.forEach(clearTimeout);
-    const dur = prev ? (tr ? Math.min(400, Math.max(120, tr[1] * 1000)) : 0) : 0;
-    if (dur) {
-      next.root.style.opacity = 0; next.root.style.transition = 'opacity ' + dur + 'ms ease';
-      requestAnimationFrame(() => { next.root.style.opacity = 1; });
-      setTimeout(() => gone.forEach((g) => g.remove()), dur + 30);
-    } else gone.forEach((g) => g.remove());
+    next.mounted = true;
+    if (next.ctx.swipe) enableSwipe(next);
     startTimers(next);
     keepAwake(/^S05/.test(S[id].n));
     prefetchAround(id);
   }
   // 이미지가 220ms 안에 준비되면 바로 넘어가고, 늦으면 그 화면의 스켈레톤을 먼저 보여 준다
   let navSeq = 0;
-  async function go(id, tr) {
+  async function go(id, mode, loader) {
     const seq = ++navSeq;
     const p = preload(id);
+    if (loader) {
+      showLoader(loader, mode);
+      await Promise.all([Promise.race([p, wait(12000)]), wait(dur(loader.ms))]);
+      if (seq !== navSeq) return;
+      show(id, { k: 'rise' });
+      return;
+    }
     const fast = await Promise.race([p.then(() => true), wait(220).then(() => false)]);
-    if (seq !== navSeq) return;
-    if (fast) { show(id, tr); return; }
+    if (seq !== navSeq) { if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; } return; }
+    if (fast) { show(id, mode); return; }
+    if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; }
     const sk = skeleton(id);
     sk.style.opacity = 0; sk.style.transition = 'opacity 150ms ease';
     device.appendChild(sk); requestAnimationFrame(() => { sk.style.opacity = 1; });
@@ -532,18 +698,55 @@
     await Promise.race([p, wait(12000)]);
     const spent = performance.now() - t0; if (spent < 380) await wait(380 - spent);
     if (seq !== navSeq) { sk.remove(); return; }
-    show(id, ['DISSOLVE', 0.22], sk);
+    show(id, { k: 'fade', ms: 220 }, sk);
+  }
+
+  // ---------- 코스 찾는 중(로딩 화면) — Figma 「S01 · 코스 확인 중」 ----------
+  const PAWS = [[[32.3,47.2,20,17,-20],[26.7,40.7,6.5,8,-20],[30.6,33.9,6.5,8,-20],[38.2,31.2,6.5,8,-20],[45.5,33.9,6.5,8,-20]],[[45.5,195.2,18,15.3,-30],[39.6,190.3,5.8,7.2,-30],[42,183.7,5.8,7.2,-30],[48.2,180.1,5.8,7.2,-30],[55.1,181.3,5.8,7.2,-30]],[[89.2,125.5,16,13.6,15],[88.6,118.7,5.2,6.4,15],[94.2,116,5.2,6.4,15],[100.4,117.7,5.2,6.4,15],[104,122.8,5.2,6.4,15]],[[120.7,15.2,12,10.2,-5],[118.5,10.6,3.9,4.8,-5],[121.8,7.3,3.9,4.8,-5],[126.6,6.9,3.9,4.8,-5],[130.4,9.5,3.9,4.8,-5]],[[162,67.5,18,15.3,-10],[158.1,60.8,5.8,7.2,-10],[162.6,55.5,5.8,7.2,-10],[169.7,54.2,5.8,7.2,-10],[175.8,57.7,5.8,7.2,-10]],[[174.8,206.6,15,12.8,30],[175.9,200.2,4.9,6,30],[181.6,199.3,4.9,6,30],[186.8,202.3,4.9,6,30],[188.9,207.7,4.9,6,30]],[[229.6,160,22,18.7,25],[230.4,150.6,7.2,8.8,25],[238.7,148.4,7.2,8.8,25],[246.7,152.1,7.2,8.8,25],[250.3,159.9,7.2,8.8,25]],[[302.8,78.6,17,14.4,-15],[298.6,72.7,5.5,6.8,-15],[302.4,67.3,5.5,6.8,-15],[308.9,65.5,5.5,6.8,-15],[315,68.3,5.5,6.8,-15]],[[317.2,15.5,12,10.2,20],[317.2,10.4,3.9,4.8,20],[321.6,8.8,3.9,4.8,20],[326.1,10.5,3.9,4.8,20],[328.5,14.5,3.9,4.8,20]],[[351,178.3,18,15.3,5],[348.9,170.9,5.8,7.2,5],[354.7,166.9,5.8,7.2,5],[361.9,167.5,5.8,7.2,5],[366.8,172.5,5.8,7.2,5]]];
+  const LOADERS = {
+    search: { ms: 2300, title: '우리 동네 코스를\n확인하고 있어요', steps: ['주변 산책길을 찾고 있어요.', '시설과 혼잡도 정보를 함께 살펴볼게요.', '우리 강아지에게 맞는 코스를 고르고 있어요.'] },
+    filter: { ms: 1500, title: '조건에 맞는 코스를\n찾고 있어요', steps: ['고른 시설이 있는 코스만 모으고 있어요.', '걷는 시간에 맞는 코스를 정리하고 있어요.'] },
+  };
+  function showLoader(L, mode) {
+    const root = el('div', 'screen loader', { width: px(W), height: px(H) });
+    const svg = '<svg class="paws" viewBox="0 0 393 240" width="393" height="240">' + PAWS.map((p, i) =>
+      '<g class="paw" style="animation-delay:' + (i * 0.17).toFixed(2) + 's">' + p.map(([x, y, w, h, r]) =>
+        '<ellipse transform="translate(' + x + ' ' + y + ') rotate(' + r + ')" cx="' + w / 2 + '" cy="' + h / 2 + '" rx="' + w / 2 + '" ry="' + h / 2 + '"/>').join('') + '</g>').join('') + '</svg>';
+    root.innerHTML =
+      '<img class="ld-status" src="img/ld/status.webp" alt="">' +
+      '<img class="ld-bar" src="img/ld/appbar.webp" alt="">' + svg +
+      '<div class="ld-shadow"></div><img class="ld-dog" src="img/ld/dog.webp" alt="">' +
+      '<svg class="ld-sparkle" viewBox="0 0 18 18"><path d="M9 0C9.75 5.25 12.75 8.25 18 9C12.75 9.75 9.75 12.75 9 18C8.25 12.75 5.25 9.75 0 9C5.25 8.25 8.25 5.25 9 0Z" fill="#F2C14E"/></svg>' +
+      '<svg class="ld-heart" viewBox="0 0 13 12"><path d="M6.5 11.8182C2.36364 8.86364 0 6.5 0 3.54545C0 1.47727 1.53636 0 3.42727 0C4.72727 0 5.90909 0.768182 6.5 1.95C7.09091 0.768182 8.27273 0 9.57273 0C11.4636 0 13 1.47727 13 3.54545C13 6.5 10.6364 8.86364 6.5 11.8182Z" fill="#F29A93"/></svg>' +
+      '<i class="ld-dot"></i>' +
+      '<div class="ld-title"></div><div class="ld-sub"><span></span></div>' +
+      '<div class="ld-dots"><i></i><i></i><i></i></div><i class="ld-home"></i>';
+    root.querySelector('.ld-title').textContent = L.title;
+    const sub = root.querySelector('.ld-sub span'); sub.textContent = L.steps[0];
+    const scr = { id: null, root, binds: { texts: [], vis: [] }, ctx: { map: null, afterMount: [] }, timeouts: [], timers: [], loader: true };
+    const per = dur(L.ms) / L.steps.length;
+    L.steps.slice(1).forEach((t, i) => scr.timers.push(setTimeout(() => {
+      settled(anim(sub, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px)' }], 160, EASE_IO)).then(() => {
+        sub.textContent = t; anim(sub, [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], 220);
+      });
+    }, per * (i + 1))));
+    mount(scr, mode || { k: 'fade', ms: 220 });
+    keepAwake(false);
   }
   function startTimers(scr) {
     scr.timers = scr.timeouts.map((a) => setTimeout(() => { if (current === scr || overlays.includes(scr)) run(a.a, scr); }, (a.tg.ms || 0) * 1000));
   }
+  // 겹쳐 뜨는 화면: 알림(Toast)은 위에서 내려오고, 확인 창은 살짝 커지며 나타난다
   async function openOverlay(id) {
     await Promise.race([preload(id), wait(1500)]);
     const o = buildScreen(id); refresh(o);
     const wrap = el('div', 'overlay');
-    wrap.appendChild(o.root); o.wrap = wrap;
-    wrap.style.opacity = 0; device.appendChild(wrap); requestAnimationFrame(() => { wrap.style.opacity = 1; });
+    wrap.appendChild(o.root); o.wrap = wrap; o.toast = /^Toast/.test(S[id].n);
+    device.appendChild(wrap);
+    if (o.toast) anim(o.root, [{ opacity: 0, transform: 'translate3d(0,-36px,0)' }, { opacity: 1, transform: 'none' }], 360);
+    else anim(o.root, [{ opacity: 0, transform: 'scale(1.04)' }, { opacity: 1, transform: 'none' }], 260);
     o.ctx.afterMount.forEach((f) => f());
+    o.mounted = true;
     overlays.push(o); startTimers(o);
   }
   function closeOverlay(target) {
@@ -551,7 +754,8 @@
     if (!o) return;
     o.timers.forEach(clearTimeout);
     overlays.splice(overlays.indexOf(o), 1);
-    o.wrap.style.opacity = 0; setTimeout(() => o.wrap.remove(), 180);
+    o.root.getAnimations().forEach((a) => a.cancel());
+    settled(anim(o.root, o.toast ? [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translate3d(0,-24px,0)' }] : [{ opacity: 1 }, { opacity: 0 }], 200, EASE_IO)).then(() => o.wrap.remove());
   }
   // 지도 화면끼리 오갈 때(+ − 버튼, 시설 핀)는 지도를 목적지 배율·위치로 부드럽게 옮긴 뒤 화면을 바꾼다
   function mapTransition(dest) {
@@ -562,11 +766,29 @@
     preload(dest);
     return m.flyTo({ s: dm.s0, tx: dm.ix, ty: dm.iy }, 420);
   }
+  // 어떤 움직임으로 넘어갈지 정한다
+  function pickMode(src, dest, tr, back) {
+    if (swipeHint) { const h = swipeHint; swipeHint = null; return { k: 'slide', dir: h.dir, d: h.d, fx: h.fx }; }
+    if (!src) return { k: 'fade', ms: 220 };
+    if (isCard(src) && isCard(dest) && cardIdx(src) !== cardIdx(dest)) return { k: 'slide', dir: cardIdx(dest) > cardIdx(src) ? 1 : -1 };
+    if (back || isBackTap(tapAt)) return { k: 'pop' };
+    if (fam(src) !== fam(dest) || fam(src) === 'S00') return { k: 'push' };
+    return { k: 'fade', ms: tr ? Math.min(320, Math.max(160, tr[1] * 1000)) : 200 };
+  }
   function navigate(dest, tr) {
-    if (current) hist.push(current.id);
+    const src = current && current.id;
+    if (src) hist.push(src);
     window.history.pushState({ navi: hist.length }, '');
     const fly = mapTransition(dest);
-    if (fly) fly.then(() => go(dest, ['DISSOLVE', 0.15])); else go(dest, tr);
+    if (fly) { fly.then(() => go(dest, { k: 'fade', ms: 150 })); return; }
+    const mode = pickMode(src, dest, tr, false);
+    // 입력·필터에서 코스를 찾으러 갈 때는 「코스 확인 중」 화면을 거친다
+    let loader = null;
+    if (src && fam(dest) === 'S01' && mode.k !== 'pop' && mode.k !== 'slide') {
+      if (fam(src) === 'S00' || fam(src) === 'S06') loader = LOADERS.search;
+      else if (fam(src) === 'S02' && isCtaTap(tapAt)) loader = LOADERS.filter;
+    }
+    go(dest, loader ? { k: fam(src) === 'S00' ? 'push' : 'fade', ms: 220 } : mode, loader);
   }
   let ignorePop = 0;
   function back(fromBrowser) {
@@ -575,7 +797,9 @@
     const dest = hist.pop();
     if (!fromBrowser) { ignorePop++; window.history.back(); }
     const fly = mapTransition(dest);
-    if (fly) fly.then(() => go(dest, ['DISSOLVE', 0.15])); else go(dest, ['DISSOLVE', 0.2]);
+    if (fly) fly.then(() => go(dest, { k: 'fade', ms: 150 }));
+    else go(dest, current && current.id && isCard(current.id) && isCard(dest) && cardIdx(current.id) !== cardIdx(dest)
+      ? { k: 'slide', dir: cardIdx(dest) > cardIdx(current.id) ? 1 : -1 } : { k: 'pop' });
   }
   window.addEventListener('popstate', () => { if (ignorePop) { ignorePop--; return; } back(true); });
   function run(actions, from) {
@@ -619,10 +843,10 @@
     stage.style.width = px(W * scale); stage.style.height = px(H * scale);
   }
   window.addEventListener('resize', fit);
-  document.getElementById('restart').addEventListener('click', () => { resetVars(); hist.length = 0; while (overlays.length) closeOverlay(); go(D.START, ['DISSOLVE', 0.2]); });
+  document.getElementById('restart').addEventListener('click', () => { resetVars(); hist.length = 0; while (overlays.length) closeOverlay(); go(D.START, { k: 'fade', ms: 220 }); });
 
   // 확인용: 콘솔에서 NAVI.go('화면 이름')
-  window.NAVI = { go: (q) => { const id = S[q] ? q : Object.keys(S).find((k) => S[k].n === q); if (id) go(id, ['DISSOLVE', 0.2]); return id; }, cur: () => current && S[current.id].n, vars };
+  window.NAVI = { go: (q) => { const id = S[q] ? q : Object.keys(S).find((k) => S[k].n === q); if (id) go(id, { k: 'fade', ms: 200 }); return id; }, cur: () => current && S[current.id].n, vars };
 
   // ---------- 시작: 스플래시에서 첫 화면·글꼴을 준비 ----------
   resetVars(); fit();
@@ -641,6 +865,15 @@
 
   // ---------- 앱처럼: 눌림 진동, 화면 확대 막기, 오프라인·새 버전 알림 ----------
   document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('.hot,.tap') && navigator.vibrate) navigator.vibrate(8); }, true);
+  // 누른 자리에서 물결이 퍼진다(버튼을 눌렀다는 느낌)
+  document.addEventListener('pointerdown', (e) => {
+    const h = e.target.closest && e.target.closest('.hot:not(.full)');
+    if (!h || REDUCE || swiping) return;
+    const r = h.getBoundingClientRect(), k = scale, size = Math.hypot(r.width, r.height) / k * 2;
+    const s = el('span', 'ripple', { width: px(size), height: px(size), left: px((e.clientX - r.left) / k - size / 2), top: px((e.clientY - r.top) / k - size / 2) });
+    h.appendChild(s);
+    settled(s.animate([{ transform: 'scale(0)', opacity: 1 }, { transform: 'scale(1)', opacity: 0 }], { duration: 560, easing: EASE, fill: 'forwards' })).then(() => s.remove());
+  }, true);
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('touchmove', (e) => { if (!e.target.closest('.scr,.map')) e.preventDefault(); }, { passive: false });
   const toast = document.getElementById('toast');

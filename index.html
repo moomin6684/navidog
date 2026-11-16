@@ -81,6 +81,42 @@ footer{font-size:12px;color:#8a9a8f}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 #toast.act{pointer-events:auto;cursor:pointer;text-decoration:underline}
 @media (prefers-reduced-motion:reduce){#splash .logo,.skel-blk{animation:none}}
+/* 움직임: 화면 전환·카드 넘기기·누름 물결 */
+.screen.lift{box-shadow:-10px 0 28px rgba(23,58,48,.16)}
+.screen .dim{position:absolute;inset:0;background:rgba(23,40,30,.12);pointer-events:none;z-index:99}
+.swipe-band{position:absolute;left:0;width:393px;overflow:hidden;z-index:5;background:#FFFBEF;pointer-events:none}
+.swipe-track{position:absolute;inset:0;will-change:transform}
+.hot{overflow:hidden}
+.ripple{position:absolute;border-radius:50%;background:radial-gradient(circle,rgba(31,74,45,.14) 0,rgba(31,74,45,.08) 60%,transparent 70%);pointer-events:none}
+.scr .slice{transition:top .3s cubic-bezier(.22,.8,.24,1)}
+/* 코스 확인 중 */
+.loader{background:#FFFBEF}
+.loader>*{position:absolute}
+.ld-status{left:0;top:0;width:393px;height:54px}
+.ld-bar{left:20px;top:62px;width:353px;height:40px}
+.loader .paws{left:0;top:582px;fill:#83A889;opacity:.14;overflow:visible}
+.paw{opacity:0;transform-box:fill-box;transform-origin:center;animation:pawstep 2.6s ease-out infinite}
+@keyframes pawstep{0%{opacity:0;transform:scale(.4)}7%{opacity:1;transform:scale(1.12)}12%{transform:none}62%{opacity:1}80%,100%{opacity:0}}
+.ld-dog{left:87px;top:238px;width:220px;height:220px;transform-origin:50% 92%;animation:sniff 1.8s ease-in-out infinite}
+@keyframes sniff{0%,100%{transform:translate(0,0) rotate(0)}22%{transform:translate(-5px,-7px) rotate(-4deg)}50%{transform:translate(0,0) rotate(0)}72%{transform:translate(5px,-7px) rotate(4deg)}}
+.ld-shadow{left:132px;top:446px;width:130px;height:14px;border-radius:50%;background:rgba(46,70,55,.09);animation:shadow 1.8s ease-in-out infinite}
+@keyframes shadow{0%,50%,100%{transform:scaleX(1)}22%,72%{transform:scaleX(.86);opacity:.7}}
+.ld-sparkle{left:77px;top:240px;width:18px;height:18px;animation:twinkle 1.4s ease-in-out infinite}
+@keyframes twinkle{0%,100%{transform:scale(.7) rotate(0);opacity:.6}50%{transform:scale(1.15) rotate(45deg);opacity:1}}
+.ld-heart{left:299px;top:278px;width:13px;height:12px;animation:float 2.2s ease-in-out infinite}
+@keyframes float{0%{transform:translateY(4px) scale(.8);opacity:0}25%{opacity:1}70%{transform:translateY(-14px) scale(1.05);opacity:1}100%{transform:translateY(-22px) scale(.9);opacity:0}}
+.ld-dot{left:85px;top:264px;width:7px;height:7px;border-radius:50%;background:#A9CFA0;animation:twinkle 1.4s .5s ease-in-out infinite}
+.ld-title{left:20px;top:480px;width:353px;font:700 28px/36px 'Maplestory','Noto Sans KR',sans-serif;color:#2E4637;text-align:center;white-space:pre-line;animation:rise .5s cubic-bezier(.22,.8,.24,1) both}
+.ld-sub{left:20px;top:574px;width:353px;font:400 14px/22px 'Noto Sans KR',sans-serif;color:#627869;text-align:center;animation:rise .5s .08s cubic-bezier(.22,.8,.24,1) both}
+.ld-sub span{display:inline-block}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.ld-dots{left:161px;top:640px;width:72px;height:16px;display:flex;gap:12px}
+.ld-dots i{width:16px;height:16px;border-radius:50%;box-sizing:border-box;border:1.5px solid #1EA84A;background:#1EA84A;animation:hop 1.05s ease-in-out infinite}
+.ld-dots i:nth-child(2){background:#FFD84D;animation-delay:.15s}
+.ld-dots i:nth-child(3){background:#9CC5D4;animation-delay:.3s}
+@keyframes hop{0%,60%,100%{transform:none}30%{transform:translateY(-8px) scale(1.08)}}
+.ld-home{left:130px;top:838px;width:134px;height:5px;border-radius:99px;background:#2E4637}
+@media (prefers-reduced-motion:reduce){.paw,.ld-dog,.ld-shadow,.ld-sparkle,.ld-heart,.ld-dot,.ld-dots i{animation:none}.paw{opacity:1}}
 body.mobile{gap:0;background:#FFF9EC;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 body.mobile header,body.mobile footer{display:none}
 body.mobile #stage{border-radius:0;box-shadow:none}
@@ -95,6 +131,6 @@ body.mobile #stage{border-radius:0;box-shadow:none}
 <script src="data.js"></script>
 <script src="map/maps.js"></script>
 <script src="lqip.js"></script>
-<script src="player.js"></script>
+<script src="player.js?v=5"></script>
 </body>
 </html>
