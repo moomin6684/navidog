@@ -84,7 +84,8 @@ footer{font-size:12px;color:#8a9a8f}
 /* 움직임: 화면 전환·카드 넘기기·누름 물결 */
 .screen.lift{box-shadow:-10px 0 28px rgba(23,58,48,.16)}
 .screen .dim{position:absolute;inset:0;background:rgba(23,40,30,.12);pointer-events:none;z-index:99}
-.swipe-band{position:absolute;left:0;width:393px;overflow:hidden;z-index:5;background:#FFFBEF;pointer-events:none;-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 7px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 7px),transparent)}
+.swipe-band{position:absolute;left:0;width:393px;overflow:hidden;z-index:5;background:#FFFBEF;pointer-events:none}
+.card-patch{position:absolute;left:0;width:393px;height:19px;z-index:40;pointer-events:none;user-select:none}.card-patch.pin{z-index:6}
 .swipe-track{position:absolute;inset:0;will-change:transform}
 .hot{overflow:hidden}
 .ripple{position:absolute;border-radius:50%;background:radial-gradient(circle,rgba(31,74,45,.14) 0,rgba(31,74,45,.08) 60%,transparent 70%);pointer-events:none}
@@ -154,9 +155,9 @@ body.mobile #stage{border-radius:0;box-shadow:none}
 <header><h1>내비독</h1><span>강아지 산책 코스 내비게이션 · 프로토타입</span><button id="restart">처음부터</button></header>
 <div id="stage"><div id="device"></div></div>
 <footer>화면을 눌러 보세요. 누를 수 있는 곳이 파랗게 표시돼요. 지도는 끌어서 옮기고, 휠·핀치·두 번 클릭(휴대폰은 두 번 톡 한 뒤 위아래로 끌기)으로 확대·축소할 수 있어요.</footer>
-<script src="data.js?v=10"></script>
+<script src="data.js?v=11"></script>
 <script src="map/maps.js?v=8"></script>
 <script src="lqip.js?v=8"></script>
-<script src="player.js?v=9"></script>
+<script src="player.js?v=10"></script>
 </body>
 </html>

@@ -632,6 +632,7 @@
       if (k.k === 'a') { const M = (D.ANIM || {})[k.p]; out.push('img/anim/plate-' + k.pl + '.webp'); if (M) out.push('img/anim/' + M.file); continue; }
       if (k.k === 's' && !k.fl && isMap) continue; if (k.img) add(k.img); if (k.img2) add(k.img2); walk(k.c); } };
     walk(sc.c);
+    if (sc.cp) { const f = id.replace(':', '_'); out.push('img/card/sh-' + f + '.webp', 'img/card/it-' + f + '.webp'); }  // 카드 넘기기 보정 그림
     return out.concat(mapUrls(id));
   }
   const preload = (id) => Promise.all(screenUrls(id).map((u) => load(u, true)));
@@ -735,24 +736,38 @@
     return out;
   }
   // 카드가 차지하는 세로 범위(넘기는 띠). 끌기 반응이 걸린 카드 영역을 쓴다.
+  // 위 경계는 필터 버튼과 카드 사이 빈 줄(291), 아래는 카드 그림자가 끝나는 줄(691)까지 — 그림자를 중간에서 자르면 카드가 빠진 자리에 가로선이 남는다.
+  const CARD_SH = [672, 691];   // 카드 아래 그림자 구간: 이 안의 화살표·점·발자국 장식은 보정 그림으로 제자리에 고정한다
   function cardBand(id, other) {
     const find = (sid) => { if (!sid || !S[sid]) return null; for (const it of S[sid].c) if (it.k === 'h' && (it.r || []).some((k) => A[k] && A[k].tg.t === 'ON_DRAG')) return it.b; return null; };
-    const b = find(id) || find(other) || [12, 302, 369, 397];
-    // 띠 위 경계는 카드 위 깨끗한 바탕 줄에, 아래는 카드 테두리 밑 그림자까지 덮고 끝 7px을 흐리게 지운다(그림자를 딱 자르면 넘길 때 가로선이 남는다)
-    return [Math.max(0, b[1] + 3), Math.min(H, b[1] + b[3] - 5.8)];
+    // 끌기 반응이 없는 카드 화면(필터 결과의 2·3번째 등)도 카드 자리는 같다
+    const b = find(id) || find(other) || [12, 287.5, 369, 397.3];
+    const cp = (S[id] && S[id].cp) || (other && S[other] && S[other].cp);
+    return [Math.max(0, b[1] + 3.5), cp ? CARD_SH[1] : Math.min(H, b[1] + b[3] - 5.8)];
   }
-  // 넘기는 띠: 화면 전체 폭으로 카드 높이만큼 잘라 낸 그림을 가로로 이어 붙인다
+  const cardPatch = (kind, sid) => { const i = el('img', 'card-patch'); i.src = 'img/card/' + kind + '-' + sid.replace(':', '_') + '.webp'; i.alt = ''; i.draggable = false; return i; };
+  // 넘기는 띠: 화면 전체 폭으로 카드 높이만큼 잘라 낸 그림을 가로로 이어 붙인다.
+  // parts: [화면 root, 가로 위치, 화면 id]. 움직이는 카드에는 장식을 지운 그림자 그림을 붙이고, 장식은 띠 위에 제자리로 고정한다.
   function makeBand(y0, y1, parts) {
     const band = el('div', 'swipe-band', { top: px(y0), height: px(y1 - y0) });
     const track = el('div', 'swipe-track');
-    for (const [root, off] of parts) {
+    const pins = [];
+    for (const [root, off, sid] of parts) {
       const c = root.cloneNode(true);
       c.style.cssText += ';position:absolute;top:' + px(-y0) + ';left:' + px(off) + ';transform:none;opacity:1;z-index:auto';
       c.querySelectorAll('.ripple').forEach((r) => r.remove());
+      if (sid && S[sid] && S[sid].cp && y1 >= CARD_SH[1]) { const sh = cardPatch('sh', sid); sh.style.top = px(CARD_SH[0]); c.appendChild(sh); }
       track.appendChild(c);
     }
     band.appendChild(track); device.appendChild(band);
-    return { band, track, set: (x) => { track.style.transform = 'translate3d(' + x + 'px,0,0)'; } };
+    const pin = (sid, fade) => {
+      if (!sid || !S[sid] || !S[sid].cp || y1 < CARD_SH[1]) return;
+      const it = cardPatch('it', sid); it.classList.add('pin'); it.style.top = px(CARD_SH[0]);
+      device.appendChild(it); pins.push(it);
+      if (fade) anim(it, [{ opacity: 0 }, { opacity: 1 }], fade, EASE_IO);
+    };
+    pin(parts[0] && parts[0][2]);
+    return { band, track, pin, set: (x) => { track.style.transform = 'translate3d(' + x + 'px,0,0)'; }, remove: () => { band.remove(); pins.forEach((p) => p.remove()); } };
   }
   let swipeHint = null, swiping = false;
   function enableSwipe(scr) {
@@ -772,8 +787,8 @@
         if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
           st.on = true; swiping = true;
           try { root.setPointerCapture(e.pointerId); } catch (er) {}
-          const parts = [[root, 0]];
-          for (const [k, off] of [['next', W], ['prev', -W]]) if (nb[k]) { const n = buildScreen(nb[k].d); refresh(n); parts.push([n.root, off]); }
+          const parts = [[root, 0, id]];
+          for (const [k, off] of [['next', W], ['prev', -W]]) if (nb[k]) { const n = buildScreen(nb[k].d); refresh(n); parts.push([n.root, off, nb[k].d]); }
           st.fx = makeBand(y0, y1, parts);
           st.x0 = e.clientX;
         } else if (Math.abs(dy) > 14) { st = null; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); }
@@ -796,13 +811,13 @@
       else if (nb.prev && (s.d > W * 0.2 || (v > 0.35 && s.d > 10))) dir = -1;
       if (!dir) {
         const a = anim(s.fx.track, [{ transform: 'translate3d(' + s.d + 'px,0,0)' }, { transform: 'none' }], 320);
-        settled(a).then(() => { s.fx.band.remove(); swiping = false; });
+        settled(a).then(() => { s.fx.remove(); swiping = false; });
         return;
       }
       if (navigator.vibrate) navigator.vibrate(6);
       swipeHint = { fx: s.fx, d: s.d, dir };
       run(A[nb[dir > 0 ? 'next' : 'prev'].k].a);
-      if (swipeHint) { s.fx.band.remove(); swipeHint = null; swiping = false; }
+      if (swipeHint) { s.fx.remove(); swipeHint = null; swiping = false; }
     };
     root.addEventListener('click', (e) => { if (eatClick) { e.stopPropagation(); e.preventDefault(); eatClick = false; } }, true);
   }
@@ -886,13 +901,14 @@
       });
     } else if (mode.k === 'slide') {
       const [y0, y1] = cardBand(prev.id, next.id), dir = mode.dir;
-      const fx = mode.fx || makeBand(y0, y1, [[prev.root, 0], [next.root, dir * W]]);
+      const fx = mode.fx || makeBand(y0, y1, [[prev.root, 0, prev.id], [next.root, dir * W, next.id]]);
+      fx.pin(next.id, 180);
       fx.band.style.zIndex = 5;
       const from = mode.d || 0, ms = mode.fx ? 300 : 420;
       next.root.style.zIndex = 2;
       anim(next.root, [{ opacity: 0 }, { opacity: 1 }], 180, EASE_IO);
       settled(anim(fx.track, [{ transform: 'translate3d(' + from + 'px,0,0)' }, { transform: 'translate3d(' + (-dir * W) + 'px,0,0)' }], ms)).then(() => {
-        fx.band.remove(); next.root.getAnimations().forEach((a) => a.cancel()); swiping = false; done();
+        fx.remove(); next.root.getAnimations().forEach((a) => a.cancel()); swiping = false; done();
       });
     } else if (mode.k === 'rise') {
       next.root.style.zIndex = 2;
@@ -907,7 +923,7 @@
     const next = buildScreen(id);
     refresh(next);
     await decodeAll(next.root, 250);
-    if (seq != null && seq !== navSeq) { if (skel) skel.remove(); if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; } return; }
+    if (seq != null && seq !== navSeq) { if (skel) skel.remove(); if (mode && mode.fx) { mode.fx.remove(); swiping = false; } return; }
     mount(next, mode, skel);
     next.ctx.afterMount.forEach((f) => f());
     next.mounted = true;
@@ -934,9 +950,9 @@
       show(id, mode, null, seq); return;
     }
     const fast = await Promise.race([p.then(() => true), wait(220).then(() => false)]);
-    if (seq !== navSeq) { if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; } return; }
+    if (seq !== navSeq) { if (mode && mode.fx) { mode.fx.remove(); swiping = false; } return; }
     if (fast) { show(id, mode, null, seq); return; }
-    if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; }
+    if (mode && mode.fx) { mode.fx.remove(); swiping = false; }
     const sk = skeleton(id);
     sk.style.opacity = 0; sk.style.transition = 'opacity 150ms ease';
     device.appendChild(sk); requestAnimationFrame(() => { sk.style.opacity = 1; });
