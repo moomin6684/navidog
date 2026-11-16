@@ -561,29 +561,54 @@
   // ---------- 이미지 미리 불러오기 ----------
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const loaded = new Map();
-  function load(url) {
+  // 디코드까지 끝낸 이미지 객체를 최근 것부터 붙잡아 둔다 — 놓으면 브라우저가 디코드 결과를 버려서 다시 열 때 깜빡인다
+  const KEEP = 90, keep = new Map();
+  const hold = (url, i) => { keep.delete(url); keep.set(url, i); if (keep.size > KEEP) keep.delete(keep.keys().next().value); };
+  // 한꺼번에 수십 장을 요청하면 지금 열 화면이 뒤로 밀린다 → 동시 6장, 급한 것(now) 먼저
+  const queue = { hi: [], lo: [] }; let active = 0;
+  function pump() {
+    while (active < 6 && (queue.hi.length || queue.lo.length)) {
+      const job = queue.hi.shift() || queue.lo.shift(); active++;
+      job().finally(() => { active--; pump(); });
+    }
+  }
+  function load(url, now) {
     let p = loaded.get(url);
-    if (!p) {
-      p = new Promise((res) => {
+    if (p) { if (keep.has(url)) hold(url, keep.get(url)); if (now && p.bump) p.bump(); return p; }
+    let start;
+    p = new Promise((res) => {
+      start = () => new Promise((fin) => {
         const i = new Image(); i.decoding = 'async';
-        i.onload = () => (i.decode ? i.decode().catch(() => {}) : Promise.resolve()).then(() => res(true));
-        i.onerror = () => res(false);
+        i.onload = () => (i.decode ? i.decode().catch(() => {}) : Promise.resolve()).then(() => { hold(url, i); res(true); fin(); });
+        i.onerror = () => { loaded.delete(url); res(false); fin(); };
         i.src = url;
       });
-      loaded.set(url, p);
-    }
+    });
+    let queued = start; const job = () => { queued = null; return start(); };
+    (now ? queue.hi : queue.lo).push(job);
+    // 나중에 급해지면(그 화면으로 바로 가면) 줄 앞으로 옮긴다
+    p.bump = () => { if (!queued) return; const k = queue.lo.indexOf(job); if (k >= 0) { queue.lo.splice(k, 1); queue.hi.push(job); pump(); } };
+    loaded.set(url, p); pump();
     return p;
+  }
+  // 새로 만든 화면의 <img> 를 붙이기 전에 디코드해 둔다(디코드 전 한 프레임 비어 보이는 깜빡임 방지)
+  function decodeAll(root, ms) {
+    const imgs = [...root.querySelectorAll('img')].filter((i) => i.decode);
+    if (!imgs.length) return Promise.resolve();
+    return Promise.race([Promise.all(imgs.map((i) => i.decode().catch(() => {}))), wait(ms)]);
   }
   function screenUrls(id) {
     const sc = S[id], out = []; if (!sc) return out;
     const add = (k) => { const m = IMG[k]; if (m) out.push('img/' + m.f); };
     sc.L.forEach(add);
     const isMap = MAPS && MAPS.S[id];
-    const walk = (c) => { for (const k of c || []) { if (k.k === 's' && !k.fl && isMap) continue; if (k.img) add(k.img); if (k.img2) add(k.img2); walk(k.c); } };
+    const walk = (c) => { for (const k of c || []) {
+      if (k.k === 'a') { const M = (D.ANIM || {})[k.p]; out.push('img/anim/plate-' + k.pl + '.webp'); if (M) out.push('img/anim/' + M.file); continue; }
+      if (k.k === 's' && !k.fl && isMap) continue; if (k.img) add(k.img); if (k.img2) add(k.img2); walk(k.c); } };
     walk(sc.c);
     return out.concat(mapUrls(id));
   }
-  const preload = (id) => Promise.all(screenUrls(id).map(load));
+  const preload = (id) => Promise.all(screenUrls(id).map((u) => load(u, true)));
   function destsOf(id) {
     const out = new Set(), sc = S[id]; if (!sc) return out;
     const acts = (list) => { for (const a of list || []) { if (a.d) out.add(a.d); (a.cb || []).forEach((b) => acts(b.a)); } };
@@ -594,9 +619,29 @@
     return out;
   }
   // 지금 화면에서 갈 수 있는 화면을 쉬는 시간에 미리 받아 둔다
+  const idle = window.requestIdleCallback || ((f) => setTimeout(f, 300));
   function prefetchAround(id) {
-    const idle = window.requestIdleCallback || ((f) => setTimeout(f, 300));
-    idle(() => { for (const d of destsOf(id)) screenUrls(d).forEach(load); });
+    const near = [...destsOf(id)];
+    // 카드 넘기기 이웃은 손가락이 닿자마자 보이므로 가장 먼저
+    const cn = isCard(id) ? cardNeighbors(id) : {};
+    [cn.next, cn.prev].filter(Boolean).forEach((d) => screenUrls(d).forEach((u) => load(u, true)));
+    near.forEach((d) => screenUrls(d).forEach((u) => load(u)));
+    idle(() => { const seen = new Set(near); for (const d of near) for (const d2 of destsOf(d)) if (!seen.has(d2)) { seen.add(d2); screenUrls(d2).forEach((u) => load(u)); } }, { timeout: 1500 });
+  }
+  // 어느 화면에서든 쓰는 공용 그림(강아지 애니메이션 전부·코스 찾는 중 화면)은 시작하자마자 받아 둔다
+  const COMMON = Object.values(D.ANIM || {}).map((m) => 'img/anim/' + m.file)
+    .concat([...new Set(JSON.stringify(S).match(/"pl":"[^"]+"/g) || [])].map((m) => 'img/anim/plate-' + m.slice(6, -1) + '.webp'))
+    .concat(['img/ld/status.webp', 'img/ld/appbar.webp', 'img/ld/dog.webp']);
+  // 글꼴: 구글 글꼴은 글자 묶음별로 처음 쓰일 때 받는다 → 앱에 나오는 글자를 미리 불러 글자가 늦게 뜨지 않게
+  function warmFonts() {
+    if (!document.fonts || !document.fonts.load) return;
+    const txt = new Set('0123456789.,:·~%-+()분km시간걸음m ');
+    const add = (v) => String(v == null ? '' : v).split('').forEach((c) => txt.add(c));
+    Object.values(D.V || {}).forEach((v) => add(typeof v === 'object' ? JSON.stringify(v) : v));
+    Object.values(LOADERS).forEach((L) => { add(L.title); L.steps.forEach(add); });
+    const t = [...txt].join('');
+    ['400', '500', '700', '900'].forEach((w) => document.fonts.load(w + " 16px 'Noto Sans KR'", t).catch(() => {}));
+    document.fonts.load("700 16px 'Maplestory'", t).catch(() => {});
   }
 
   // ---------- 스켈레톤 ----------
@@ -802,10 +847,12 @@
       settled(anim(next.root, [{ opacity: 0 }, { opacity: 1 }], mode.ms || 220, EASE_IO)).then(() => { next.root.getAnimations().forEach((a) => a.cancel()); done(); });
     }
   }
-  function show(id, mode, skel) {
+  async function show(id, mode, skel, seq) {
     if (!S[id]) return;
     const next = buildScreen(id);
     refresh(next);
+    await decodeAll(next.root, 250);
+    if (seq != null && seq !== navSeq) { if (skel) skel.remove(); if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; } return; }
     mount(next, mode, skel);
     next.ctx.afterMount.forEach((f) => f());
     next.mounted = true;
@@ -823,17 +870,17 @@
       showLoader(loader, mode);
       await Promise.all([Promise.race([p, wait(12000)]), wait(dur(loader.ms))]);
       if (seq !== navSeq) return;
-      show(id, { k: 'rise' });
+      show(id, { k: 'rise' }, null, seq);
       return;
     }
     if (mode && (mode.k === 'sheetup' || mode.k === 'sheetdown')) {
       await Promise.race([p, wait(1500)]);
       if (seq !== navSeq) return;
-      show(id, mode); return;
+      show(id, mode, null, seq); return;
     }
     const fast = await Promise.race([p.then(() => true), wait(220).then(() => false)]);
     if (seq !== navSeq) { if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; } return; }
-    if (fast) { show(id, mode); return; }
+    if (fast) { show(id, mode, null, seq); return; }
     if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; }
     const sk = skeleton(id);
     sk.style.opacity = 0; sk.style.transition = 'opacity 150ms ease';
@@ -842,7 +889,7 @@
     await Promise.race([p, wait(12000)]);
     const spent = performance.now() - t0; if (spent < 380) await wait(380 - spent);
     if (seq !== navSeq) { sk.remove(); return; }
-    show(id, { k: 'fade', ms: 220 }, sk);
+    show(id, { k: 'fade', ms: 220 }, sk, seq);
   }
 
   // ---------- 코스 찾는 중(로딩 화면) — Figma 「S01 · 코스 확인 중」 ----------
@@ -884,6 +931,7 @@
   async function openOverlay(id) {
     await Promise.race([preload(id), wait(1500)]);
     const o = buildScreen(id); refresh(o);
+    await decodeAll(o.root, 250);
     const wrap = el('div', 'overlay');
     wrap.appendChild(o.root); o.wrap = wrap; o.toast = /^Toast/.test(S[id].n);
     if (o.toast) wrap.style.pointerEvents = 'none';  // 알림은 아래 화면 조작을 막지 않는다
@@ -1009,7 +1057,9 @@
     const t0 = performance.now();
     await Promise.race([Promise.all([...urls.map((u) => load(u).then(tick)), document.fonts.ready.then(tick)]), wait(8000)]);
     const spent = performance.now() - t0; if (spent < 700) await wait(700 - spent);
-    show(D.START);
+    await show(D.START);
+    COMMON.forEach((u) => load(u));
+    warmFonts();
     window.history.replaceState({ navi: 0 }, '');
     if (splash) { splash.classList.add('hide'); setTimeout(() => splash.remove(), 400); }
   })();
