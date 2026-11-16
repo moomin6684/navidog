@@ -117,6 +117,27 @@ footer{font-size:12px;color:#8a9a8f}
 @keyframes hop{0%,60%,100%{transform:none}30%{transform:translateY(-8px) scale(1.08)}}
 .ld-home{left:130px;top:838px;width:134px;height:5px;border-radius:99px;background:#2E4637}
 @media (prefers-reduced-motion:reduce){.paw,.ld-dog,.ld-shadow,.ld-sparkle,.ld-heart,.ld-dot,.ld-dots i{animation:none}.paw{opacity:1}}
+/* 지도: 현재 위치 버튼·내 위치 */
+.hot.gps{border-radius:50%;background:#fff;box-shadow:0 0 0 1px #D6EBD0,0 2px 6px rgba(23,58,48,.08);display:flex;align-items:center;justify-content:center;color:#184133;transition:color .2s ease,transform .15s ease}
+.hot.gps:active{transform:scale(.94)}
+.hot.gps.on{color:#1E88FF}
+.map .me-halo{position:absolute;left:0;top:0;width:0;height:0}
+.map .me-halo i,.map .me-halo::after{content:'';position:absolute;left:-32px;top:-32px;width:64px;height:64px;border-radius:50%;opacity:0;pointer-events:none}
+.map .me-halo i{background:rgba(30,136,255,.22)}
+.map.follow .me-halo i{animation:mehalo 2.2s ease-out infinite}
+.map .me-halo.ping::after{border:3px solid #1E88FF;box-sizing:border-box;animation:meping .9s ease-out 1}
+@keyframes mehalo{0%{transform:scale(.8);opacity:.9}100%{transform:scale(2.1);opacity:0}}
+@keyframes meping{0%{transform:scale(.9);opacity:1}100%{transform:scale(1.9);opacity:0}}
+/* 하단 시트(평소 거리 입력) */
+.sheet-under{position:absolute;inset:0;pointer-events:none}
+.sheet-dim{position:absolute;inset:0;background:rgba(20,36,28,.42);border-radius:0!important;cursor:default}
+.sheet-dim:active{background-color:rgba(20,36,28,.42)!important}
+.sheet{position:absolute;left:0;width:393px;background:#FFFBEF;border-radius:28px 28px 0 0;box-shadow:0 -6px 24px rgba(23,58,48,.14);overflow:hidden;touch-action:none}
+.sheet-seg{position:absolute;left:0;width:393px;overflow:hidden}
+.sheet-grab{position:absolute;left:176px;top:10px;width:41px;height:5px;border-radius:99px;background:#D3DCCF}
+.hot.sheet-close{border-radius:50%}
+.sheet-close span{display:flex;width:36px;height:36px;margin:4px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px #DCEBD5;align-items:center;justify-content:center;color:#183B30}
+@media (prefers-reduced-motion:reduce){.map.follow .me-halo i{animation:none}}
 body.mobile{gap:0;background:#FFF9EC;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 body.mobile header,body.mobile footer{display:none}
 body.mobile #stage{border-radius:0;box-shadow:none}
@@ -128,9 +149,9 @@ body.mobile #stage{border-radius:0;box-shadow:none}
 <header><h1>내비독</h1><span>강아지 산책 코스 내비게이션 · 프로토타입</span><button id="restart">처음부터</button></header>
 <div id="stage"><div id="device"></div></div>
 <footer>화면을 눌러 보세요. 누를 수 있는 곳이 파랗게 표시돼요. 지도는 끌어서 옮기고, 휠·핀치·두 번 클릭으로 확대할 수 있어요.</footer>
-<script src="data.js"></script>
-<script src="map/maps.js"></script>
-<script src="lqip.js"></script>
-<script src="player.js?v=5"></script>
+<script src="data.js?v=6"></script>
+<script src="map/maps.js?v=6"></script>
+<script src="lqip.js?v=6"></script>
+<script src="player.js?v=6"></script>
 </body>
 </html>

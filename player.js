@@ -85,8 +85,14 @@
     const [x, y, w, h] = it.b;
     const e = el('div', 'hot', { left: px(x), top: px(y), width: px(w), height: px(h) });
     attachReactions(e, it.r, ctx);
+    if (isLocate(it.r)) {
+      e.classList.add('gps'); e.innerHTML = GPS_SVG; ctx.gps = e;
+      e.addEventListener('click', () => { if (ctx.map) ctx.map.locate(); });
+    }
     return e;
   }
+  // 「현재 위치」 알림을 띄우는 버튼 = 지도의 현재 위치(GPS) 버튼
+  const isLocate = (refs) => (refs || []).some((k) => A[k] && A[k].a.some((a) => a.t === 'NODE' && a.n === 'OVERLAY' && S[a.d] && /^Toast · 현재 위치/.test(S[a.d].n)));
 
   // 드래그/클릭 판별
   function attachReactions(e, refs, ctx) {
@@ -206,6 +212,10 @@
   // 지도 바탕은 4200×5000(원본 단위) 한 장을 4단계 타일로 나눠 두고, 지금 배율에 맞는 타일만 불러온다.
   // 경로·라벨·핀은 SVG라 어느 배율에서도 선명하다. 핀·라벨은 일정 배율 이상 커지지 않는다.
   const MK_CAP = 1.3;
+  // 내 위치(경로 출발점 = 우리 집 앞). 원의 가운데가 출발점에 오도록 그린 핀이다.
+  const ME = { f: 'me2', t: 's', cx: 2100, cy: 2580, w: 64, h: 64 };
+  const marksOf = (M) => (M.mk.some((m) => /^me/.test(m.f)) ? M.mk : M.mk.concat([ME]));
+  const GPS_SVG = '<svg viewBox="0 0 24 24" width="24" height="24"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 1.6v3.4M12 19v3.4M1.6 12h3.4M19 12h3.4"/></g><circle class="gps-dot" cx="12" cy="12" r="2.7" fill="currentColor"/></svg>';
   function mapView(it, ctx) {
     const M = MAPS.S[ctx.sid], MW = MAPS.W, MH = MAPS.H, T = MAPS.tile;
     const [bx, by, w, h] = it.b;
@@ -221,13 +231,22 @@
     const sMin = Math.min(M.s0, Math.max(w / MW, h / MH)), sMax = 1.6;
 
     // 덮개(경로·핀·라벨·내 위치)
-    const marks = M.mk.map((m) => {
+    const halo = el('div', 'me-halo'); halo.appendChild(el('i'));
+    const marks = marksOf(M).map((m) => {
+      if (/^me/.test(m.f)) ov.appendChild(halo);
       const e = el('img', 'mk'); e.alt = ''; e.draggable = false; e.decoding = 'async';
-      e.src = 'map/mk/' + m.f + (m.f === 'me' ? '.webp' : '.svg');
+      e.src = 'map/mk/' + m.f + (/^me/.test(m.f) ? '.webp' : '.svg');
       if (m.t === 'r') e.classList.add('route');
       ov.appendChild(e);
       return Object.assign({ e }, m);
     });
+    const me = marks.find((m) => /^me/.test(m.f));
+    const placeOrder = marks.filter((m) => !m.target).concat(marks.filter((m) => m.target));
+    // 포커스 링은 그 시설 핀의 둥근 머리에 맞춘다(핀은 확대해도 일정 크기 이상 커지지 않으므로)
+    for (const m of marks) if (m.f === 'focus') {
+      let bd = 1e9; for (const p of marks) if (p.pin) { const d = Math.hypot(p.x + p.w / 2 - m.cx, p.y + p.w / 2 - m.cy); if (d < bd) { bd = d; m.target = p; } }
+      if (bd > 60) m.target = null;
+    }
     // 지도 안의 누르는 곳(시설 핀)은 그 핀에 붙인다
     for (const c of it.c || []) {
       if (c.k !== 'h') continue;
@@ -238,15 +257,21 @@
     }
     function placeMarks() {
       const { s, tx, ty } = cam, ms = Math.min(s, MK_CAP);
-      for (const m of marks) {
+      for (const m of placeOrder) {
         let l, t, mw, mh;
         if (m.t === 'r') { l = tx + m.x * s; t = ty + m.y * s; mw = m.w * s; mh = m.h * s; }
-        else if (m.t === 's') { mw = m.w; mh = m.h; l = tx + m.cx * s - mw / 2; t = ty + m.cy * s - mh / 2; }
+        else if (m.t === 's') {
+          mw = m.w; mh = m.h;
+          const p = m.target, cx = p ? p.pl + (p.w / 2) * p.ms : tx + m.cx * s, cy = p ? p.pt + (p.w / 2) * p.ms : ty + m.cy * s;
+          l = cx - mw / 2; t = cy - mh / 2;
+        }
         else {
           const ax = m.x + m.w / 2, ay = m.pin ? m.y + m.h : m.y + m.h / 2;
           mw = m.w * ms; mh = m.h * ms; l = tx + ax * s - (ax - m.x) * ms; t = ty + ay * s - (ay - m.y) * ms;
+          m.pl = l; m.pt = t; m.ms = ms;
         }
         m.e.style.transform = 'translate3d(' + l + 'px,' + t + 'px,0)'; m.e.style.width = px(mw); m.e.style.height = px(mh);
+        if (m === me) halo.style.transform = 'translate3d(' + (l + mw / 2) + 'px,' + (t + mh / 2) + 'px,0)';
       }
     }
     // 타일
@@ -336,7 +361,7 @@
       const dx = c[0] - last[0], dy = c[1] - last[1];
       cam.tx += dx; cam.ty += dy;
       vel.push({ t: performance.now(), dx, dy }); if (vel.length > 6) vel.shift();
-      if (!moved) { const st = vel.reduce((a, v) => a + Math.abs(v.dx) + Math.abs(v.dy), 0); if (st > 6 || pts.size > 1) moved = true; }
+      if (!moved) { const st = vel.reduce((a, v) => a + Math.abs(v.dx) + Math.abs(v.dy), 0); if (st > 6 || pts.size > 1) { moved = true; unfollow(); } }
       clampCam(true); apply(); last = c;
     }
     function up(e) {
@@ -348,7 +373,7 @@
       const now = performance.now(), [lx, ly] = last;
       if (!moved) {
         if (multi && now - downAt < 300) { zoomAnim(w / 2, h / 2, 0.5); return; }       // 두 손가락 톡: 축소
-        if (lastTap && now - lastTap.t < 320 && Math.hypot(lx - lastTap.x, ly - lastTap.y) < 30) { lastTap = null; zoomAnim(lx, ly, 2); return; } // 두 번 톡: 확대
+        if (lastTap && now - lastTap.t < 320 && Math.hypot(lx - lastTap.x, ly - lastTap.y) < 30) { lastTap = null; unfollow(); zoomAnim(lx, ly, 2); return; } // 두 번 톡: 확대
         lastTap = { t: now, x: lx, y: ly }; return;
       }
       lastTap = null;
@@ -371,7 +396,7 @@
     box.addEventListener('pointerdown', down);
     box.addEventListener('click', (e) => { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; return; } if (!e.target.closest('.tap')) e.stopPropagation(); }, true);
     box.addEventListener('wheel', (e) => {
-      e.preventDefault(); stop();
+      e.preventDefault(); stop(); unfollow();
       const [lx, ly] = local(e);
       // 지도 앱처럼 휠·트랙패드 스크롤·핀치는 모두 확대·축소(이동은 끌기로)
       const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
@@ -380,8 +405,21 @@
     }, { passive: false });
     box.addEventListener('dblclick', (e) => e.preventDefault());
 
+    // 현재 위치 버튼: 내 위치가 지도 가운데로 오도록 부드럽게 옮기고, 끌기 전까지 따라가기 상태를 보여 준다
+    let following = false;
+    function unfollow() { if (!following) return; following = false; box.classList.remove('follow'); if (ctx.gps) ctx.gps.classList.remove('on'); }
+    function locate() {
+      if (!me) return;
+      const s = Math.min(sMax, Math.max(cam.s, M.s0));
+      const c2 = { s, tx: w / 2 - me.cx * s, ty: h / 2 - me.cy * s };
+      const far = Math.hypot((w / 2 - cam.tx) / cam.s - me.cx, (h / 2 - cam.ty) / cam.s - me.cy) * cam.s;
+      following = true; box.classList.add('follow'); if (ctx.gps) ctx.gps.classList.add('on');
+      halo.classList.remove('ping'); void halo.offsetWidth;
+      flyTo(c2, Math.min(720, 380 + far * 0.6)).then(() => { if (following) halo.classList.add('ping'); });
+    }
+
     clampCam(false); apply();
-    ctx.map = { flyTo, box, top: by, h, apply, urls: () => initialUrls() };
+    ctx.map = { flyTo, box, top: by, h, apply, locate, urls: () => initialUrls() };
     function initialUrls() {
       const need = cam.s * ctx.scale() * (window.devicePixelRatio || 1);
       let li = levels.findIndex((L) => L.ls >= need * 0.92); if (li < 0) li = levels.length - 1;
@@ -400,13 +438,77 @@
     const need = s * scale * (window.devicePixelRatio || 1);
     let li = MAPS.levels.findIndex((ls) => ls >= need * 0.92); if (li < 0) li = MAPS.levels.length - 1;
     const TN = T / MAPS.levels[li], out = ['map/preview.webp'];
-    for (const m of M.mk) out.push('map/mk/' + m.f + (m.f === 'me' ? '.webp' : '.svg'));
+    for (const m of marksOf(M)) out.push('map/mk/' + m.f + (/^me/.test(m.f) ? '.webp' : '.svg'));
     for (let j = Math.max(0, Math.floor(-M.iy / s / TN)); j * TN <= (h - M.iy) / s && j * TN < MAPS.H; j++)
       for (let i = Math.max(0, Math.floor(-M.ix / s / TN)); i * TN <= (w - M.ix) / s && i * TN < MAPS.W; i++) out.push('map/' + li + '/' + i + '_' + j + '.webp');
     return out;
   }
 
+  // ---------- 하단 시트: 평소 거리 입력 ----------
+  // 「S00 · 거리 입력」·「S00 · 입력 확인」은 앞 화면 위로 아래에서 올라오는 시트로 보여 준다.
+  // 원래 화면 그림에서 제목·입력칸~키패드·저장 버튼 띠를 잘라 시트 안에 다시 배치한다([원래 y0, y1, 시트 안 y]).
+  const SHEET_IDS = new Set(['616:9009', '616:9043']);
+  const isSheet = (id) => SHEET_IDS.has(id);
+  const SHEET_TOP = 170, SHEET_SEG = [[134, 172, 30], [186, 676, 72], [748, 852, 578]];
+  const CLOSE_SVG = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+  function buildSheet(id) {
+    const sc = S[id];
+    const binds = { texts: [], vis: [] };
+    const ctx = { afterMount: [], scale: () => scale, timers: [], sid: id, map: null };
+    const root = el('div', 'screen sheet-scr', { width: px(sc.w), height: px(sc.h) });
+    const under = el('div', 'sheet-under'), dim = el('div', 'sheet-dim hot full');
+    const panel = el('div', 'sheet', { top: px(SHEET_TOP), height: px(sc.h - SHEET_TOP) });
+    for (const [a, b, d] of SHEET_SEG) {
+      const seg = el('div', 'sheet-seg', { top: px(d), height: px(b - a) });
+      seg.appendChild(img(sc.L[0], { top: px(-a) }));
+      panel.appendChild(seg);
+    }
+    panel.appendChild(el('i', 'sheet-grab'));
+    const at = (y) => { for (const [a, b, d] of SHEET_SEG) if (y >= a && y < b) return y - a + d; return null; };
+    const items = []; let closeRefs = null;
+    for (const c of sc.c) {
+      const y = at(c.b[1]);
+      if (y != null) items.push(Object.assign({}, c, { b: [c.b[0], y, c.b[2], c.b[3]] }));
+      else if (c.k === 'h' && c.b[1] < 120) closeRefs = c.r;            // 뒤로(‹) 버튼 → 시트 닫기
+    }
+    renderItems(items, panel, binds, ctx, sc.w);
+    const x = el('div', 'hot sheet-close', { left: px(333), top: px(27), width: px(44), height: px(44) });
+    x.innerHTML = '<span>' + CLOSE_SVG + '</span>'; x.setAttribute('aria-label', '닫기');
+    attachReactions(x, closeRefs, ctx); attachReactions(dim, closeRefs, ctx);
+    panel.appendChild(x);
+    root.append(under, dim, panel);
+    const scr = { id, root, binds, ctx, timeouts: [], sheet: { under, dim, panel, dy: 0 } };
+    enableSheetDrag(scr, closeRefs);
+    return scr;
+  }
+  // 시트 윗부분(손잡이·제목)을 아래로 끌면 따라 내려오고, 충분히 끌면 닫힌다
+  function enableSheetDrag(scr, closeRefs) {
+    const { panel, dim } = scr.sheet; let st = null;
+    panel.addEventListener('pointerdown', (e) => {
+      const r = panel.getBoundingClientRect(); if ((e.clientY - r.top) / scale > 72 || e.target.closest('.sheet-close')) return;
+      st = { pid: e.pointerId, y0: e.clientY, v: [] }; try { panel.setPointerCapture(e.pointerId); } catch (er) {}
+    });
+    panel.addEventListener('pointermove', (e) => {
+      if (!st || e.pointerId !== st.pid) return;
+      const d = (e.clientY - st.y0) / scale, dy = d > 0 ? d : -Math.min(14, -d * 0.2);
+      scr.sheet.dy = dy; panel.style.transform = 'translate3d(0,' + dy + 'px,0)';
+      dim.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / (H - SHEET_TOP)));
+      st.v.push([performance.now(), dy]); if (st.v.length > 5) st.v.shift();
+    });
+    const up = (e) => {
+      if (!st || e.pointerId !== st.pid) return;
+      const s = st; st = null; const dy = scr.sheet.dy;
+      const v = s.v.length > 1 ? (s.v[s.v.length - 1][1] - s.v[0][1]) / Math.max(1, s.v[s.v.length - 1][0] - s.v[0][0]) : 0;
+      if (dy > 120 || (v > 0.5 && dy > 20)) { run(A[closeRefs[0]].a, scr); return; }
+      scr.sheet.dy = 0;
+      anim(panel, [{ transform: 'translate3d(0,' + dy + 'px,0)' }, { transform: 'none' }], 260).finished.then(() => { panel.getAnimations().forEach((a) => a.cancel()); panel.style.transform = ''; }).catch(() => {});
+      dim.style.opacity = '';
+    };
+    panel.addEventListener('pointerup', up); panel.addEventListener('pointercancel', up);
+  }
+
   function buildScreen(id) {
+    if (isSheet(id)) return buildSheet(id);
     const sc = S[id];
     const binds = { texts: [], vis: [] };
     const ctx = { afterMount: [], scale: () => scale, timers: [], sid: id, map: null };
@@ -635,6 +737,27 @@
     const k = prev && mode ? mode.k : null;
     if (!k) { done(); return; }
     if (skel && (k === 'push' || k === 'pop' || k === 'slide')) mode = { k: 'fade', ms: 200 };
+    if (k === 'sheetup' && next.sheet) {
+      // 시트 뒤에는 앞 화면을 그대로 둔다(시트끼리 바뀔 때는 같은 바탕을 넘겨받는다)
+      const u = next.sheet.under;
+      if (prev.sheet) { while (prev.sheet.under.firstChild) u.appendChild(prev.sheet.under.firstChild); }
+      else { const c = prev.root.cloneNode(true); c.style.cssText += ';transform:none;opacity:1;z-index:auto'; c.querySelectorAll('.ripple,.dim').forEach((r) => r.remove()); u.appendChild(c); }
+      next.root.style.zIndex = 2;
+      if (prev.sheet) { settled(anim(next.sheet.panel, [{ opacity: 0.4 }, { opacity: 1 }], 160, EASE_IO)).then(() => { next.sheet.panel.getAnimations().forEach((a) => a.cancel()); done(); }); return; }
+      prev.root.style.visibility = 'hidden';
+      anim(next.sheet.dim, [{ opacity: 0 }, { opacity: 1 }], 300, EASE_IO);
+      settled(anim(next.sheet.panel, [{ transform: 'translate3d(0,100%,0)' }, { transform: 'none' }], 420)).then(() => {
+        [next.sheet.panel, next.sheet.dim].forEach((r) => r.getAnimations().forEach((a) => a.cancel())); done();
+      });
+      return;
+    }
+    if (k === 'sheetdown' && prev.sheet) {
+      prev.root.style.zIndex = 2; next.root.style.zIndex = 1;
+      const { panel, dim, dy } = prev.sheet;
+      anim(dim, [{ opacity: dim.style.opacity || 1 }, { opacity: 0 }], 280, EASE_IO);
+      settled(anim(panel, [{ transform: 'translate3d(0,' + dy + 'px,0)' }, { transform: 'translate3d(0,100%,0)' }], 300, EASE_IO)).then(done);
+      return;
+    }
     if (k === 'push' || k === 'pop') {
       const fwd = k === 'push', top = fwd ? next.root : prev.root, under = fwd ? prev.root : next.root;
       top.style.zIndex = 2; under.style.zIndex = 1; top.classList.add('lift');
@@ -686,6 +809,11 @@
       if (seq !== navSeq) return;
       show(id, { k: 'rise' });
       return;
+    }
+    if (mode && (mode.k === 'sheetup' || mode.k === 'sheetdown')) {
+      await Promise.race([p, wait(1500)]);
+      if (seq !== navSeq) return;
+      show(id, mode); return;
     }
     const fast = await Promise.race([p.then(() => true), wait(220).then(() => false)]);
     if (seq !== navSeq) { if (mode && mode.fx) { mode.fx.band.remove(); swiping = false; } return; }
@@ -742,6 +870,7 @@
     const o = buildScreen(id); refresh(o);
     const wrap = el('div', 'overlay');
     wrap.appendChild(o.root); o.wrap = wrap; o.toast = /^Toast/.test(S[id].n);
+    if (o.toast) wrap.style.pointerEvents = 'none';  // 알림은 아래 화면 조작을 막지 않는다
     device.appendChild(wrap);
     if (o.toast) anim(o.root, [{ opacity: 0, transform: 'translate3d(0,-36px,0)' }, { opacity: 1, transform: 'none' }], 360);
     else anim(o.root, [{ opacity: 0, transform: 'scale(1.04)' }, { opacity: 1, transform: 'none' }], 260);
@@ -779,6 +908,7 @@
     const src = current && current.id;
     if (src) hist.push(src);
     window.history.pushState({ navi: hist.length }, '');
+    if (isSheet(dest)) { go(dest, src ? { k: 'sheetup' } : { k: 'fade', ms: 200 }); return; }
     const fly = mapTransition(dest);
     if (fly) { fly.then(() => go(dest, { k: 'fade', ms: 150 })); return; }
     const mode = pickMode(src, dest, tr, false);
@@ -792,10 +922,15 @@
   }
   let ignorePop = 0;
   function back(fromBrowser) {
-    if (overlays.length) { closeOverlay(); if (fromBrowser) window.history.pushState({ navi: hist.length }, ''); return; }
+    if (overlays.some((o) => !o.toast)) { closeOverlay(); if (fromBrowser) window.history.pushState({ navi: hist.length }, ''); return; }
+    while (overlays.length) closeOverlay();   // 알림은 닫고 그대로 뒤로 간다
     if (!hist.length) return;
-    const dest = hist.pop();
-    if (!fromBrowser) { ignorePop++; window.history.back(); }
+    // 시트(거리 입력·입력 확인)는 한 화면의 상태라 뒤로 가면 시트를 통째로 닫는다
+    let dest = hist.pop(), skip = 0;
+    while (isSheet(dest) && hist.length) { dest = hist.pop(); skip++; }
+    const steps = (fromBrowser ? 0 : 1) + skip;
+    if (steps) { ignorePop++; window.history.go(-steps); }
+    if (current && current.sheet) { go(dest, { k: 'sheetdown' }); return; }
     const fly = mapTransition(dest);
     if (fly) fly.then(() => go(dest, { k: 'fade', ms: 150 }));
     else go(dest, current && current.id && isCard(current.id) && isCard(dest) && cardIdx(current.id) !== cardIdx(dest)

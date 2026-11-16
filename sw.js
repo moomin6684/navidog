@@ -1,7 +1,7 @@
 // 내비독 서비스워커 — 이미지·지도·글꼴은 한 번 받으면 저장해 두고(오프라인에서도 열림),
 // 화면 코드(html·js)는 늘 새 버전을 먼저 받아 수정한 내용이 바로 보이게 한다.
-const VERSION = 'navidog-2026-11-16c';
-const SHELL = ['./', 'index.html', 'player.js', 'data.js', 'lqip.js', 'map/maps.js', 'map/preview.webp', 'fonts/MaplestoryBold.woff', 'icons/icon-192.png'];
+const VERSION = 'navidog-2026-11-16d';
+const SHELL = ['./', 'index.html', 'player.js?v=6', 'data.js?v=6', 'lqip.js?v=6', 'map/maps.js?v=6', 'map/preview.webp', 'fonts/MaplestoryBold.woff', 'icons/icon-192.png'];
 self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).catch(() => {})); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
