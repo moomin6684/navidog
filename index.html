@@ -2,7 +2,15 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="내비독">
+<link rel="preload" href="fonts/MaplestoryBold.woff" as="font" type="font/woff" crossorigin>
 <meta name="theme-color" content="#FFF8E7">
 <title>내비독 · 강아지 산책 코스 내비게이션 프로토타입</title>
 <meta name="description" content="오늘도 같이, 동네 한 바퀴. 우리 강아지에게 맞는 산책 코스를 추천하고 길을 안내하는 내비독 프로토타입">
@@ -12,7 +20,7 @@
 <style>
 @font-face{font-family:'Maplestory';src:url(fonts/MaplestoryBold.woff) format('woff');font-weight:700;font-display:swap}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%;background:#FFF8E7;font-family:'Noto Sans KR',sans-serif;color:#2e4637;overflow:hidden}
+html,body{margin:0;height:100%;overscroll-behavior:none;touch-action:manipulation;background:#FFF8E7;font-family:'Noto Sans KR',sans-serif;color:#2e4637;overflow:hidden}
 body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
   background:radial-gradient(circle at 15% 20%,#E4F7D9 0,transparent 45%),radial-gradient(circle at 85% 80%,#DDF1FF 0,transparent 40%),#FFF8E7}
 header{display:flex;align-items:center;gap:14px}
@@ -35,16 +43,58 @@ header span{font-size:13px;color:#62786a}
 .screen.flash .hot{animation:flash .6s ease}
 @keyframes flash{0%,100%{background:transparent}30%{background:rgba(64,140,255,.22);outline:2px solid rgba(64,140,255,.6)}}
 footer{font-size:12px;color:#8a9a8f}
-body.mobile{gap:0;background:#FFF9EC}
+/* 눌림 피드백 */
+.hot{transition:background-color .12s ease;border-radius:14px}
+.hot:not(.full):active{background-color:rgba(31,74,45,.08)}
+/* 지도 */
+.map{position:absolute;overflow:hidden;touch-action:none;background:#F6F0DF;cursor:grab;contain:strict}
+.map.moving{cursor:grabbing}
+.map .world{position:absolute;left:0;top:0;transform-origin:0 0}
+.map.moving .world{will-change:transform}
+.map .lvl{position:absolute;inset:0}
+.map .tile{position:absolute;max-width:none;user-select:none;-webkit-user-drag:none}
+.map .lvl .tile{opacity:0;transition:opacity .18s ease}
+.map .lvl .tile.on{opacity:1}
+.map .ov{position:absolute;inset:0;pointer-events:none}
+.map .mk{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none}
+.map .mk.tap{pointer-events:auto;cursor:pointer}
+.map .mk.tap:active{filter:brightness(.92)}
+/* 스켈레톤 */
+.skel{background:#FFF9EC}
+.skel-bg{position:absolute;inset:-20px;background-size:cover;background-position:center;filter:blur(14px) saturate(1.05);opacity:.8}
+.skel-veil{position:absolute;inset:0;background:rgba(255,249,236,.4)}
+.skel-blk{position:absolute;background:linear-gradient(100deg,rgba(236,241,231,.92) 30%,rgba(255,255,255,.98) 50%,rgba(236,241,231,.92) 70%);background-size:300% 100%;animation:shimmer 1.3s ease-in-out infinite}
+@keyframes shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
+/* 스플래시 */
+#splash{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:radial-gradient(circle at 20% 15%,#E4F7D9 0,transparent 50%),radial-gradient(circle at 85% 85%,#DDF1FF 0,transparent 45%),#FFF8E7;transition:opacity .35s ease}
+#splash.hide{opacity:0;pointer-events:none}
+#splash .logo{width:112px;height:112px;border-radius:50%;background:#9CC5D4 url(icons/icon-192.png) center/cover;box-shadow:0 8px 22px rgba(23,58,48,.18);animation:bob 1.6s ease-in-out infinite}
+#splash h2{margin:6px 0 0;font:700 30px 'Maplestory','Noto Sans KR',sans-serif;color:#1f7a3a}
+#splash p{margin:0;font-size:14px;color:#62786a}
+#splash .bar{width:160px;height:6px;border-radius:99px;background:#E3EEDC;overflow:hidden;margin-top:10px}
+#splash .bar i{display:block;height:100%;width:4%;border-radius:99px;background:#3DAA5A;transition:width .25s ease}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+/* 알림 */
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translate(-50%,20px);z-index:60;max-width:88vw;
+  background:#2e4637;color:#fff;font:500 14px 'Noto Sans KR',sans-serif;padding:11px 18px;border-radius:999px;box-shadow:0 6px 18px rgba(23,58,48,.25);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.act{pointer-events:auto;cursor:pointer;text-decoration:underline}
+@media (prefers-reduced-motion:reduce){#splash .logo,.skel-blk{animation:none}}
+body.mobile{gap:0;background:#FFF9EC;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 body.mobile header,body.mobile footer{display:none}
 body.mobile #stage{border-radius:0;box-shadow:none}
 </style>
 </head>
 <body>
+<div id="splash"><div class="logo"></div><h2>내비독</h2><p>오늘도 같이, 동네 한 바퀴</p><div class="bar"><i></i></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
 <header><h1>내비독</h1><span>강아지 산책 코스 내비게이션 · 프로토타입</span><button id="restart">처음부터</button></header>
 <div id="stage"><div id="device"></div></div>
-<footer>화면을 눌러 보세요. 누를 수 있는 곳이 파랗게 표시돼요. 지도는 끌어서 움직일 수 있어요.</footer>
+<footer>화면을 눌러 보세요. 누를 수 있는 곳이 파랗게 표시돼요. 지도는 끌어서 옮기고, 휠·핀치·두 번 클릭으로 확대할 수 있어요.</footer>
 <script src="data.js"></script>
+<script src="map/maps.js"></script>
+<script src="lqip.js"></script>
 <script src="player.js"></script>
 </body>
 </html>
