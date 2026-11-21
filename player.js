@@ -90,6 +90,7 @@
   }
   function hotspot(it, ctx) {
     const [x, y, w, h] = it.b;
+    if (MAPS && MAPS.S[ctx.sid] && ZOOM_BTN[x + ',' + y] && w === 44 && h === 44) return zoomButton(it, ctx, ZOOM_BTN[x + ',' + y]);
     const e = el('div', 'hot', { left: px(x), top: px(y), width: px(w), height: px(h) });
     attachReactions(e, it.r, ctx);
     if (isLocate(it.r)) {
@@ -98,6 +99,29 @@
     }
     return e;
   }
+  // 지도 + − 버튼: 「크게 보기」·「도시 전체」 화면으로 넘어가면(화면을 통째로 다시 그려 새로고침처럼 보였다) 대신 지금 지도를 그 자리에서 확대·축소한다.
+  // 끝까지 확대·축소하면 그 버튼은 원래 디자인의 회색 그림으로 바뀌고, 더 누르면 지도가 살짝 튕기기만 한다.
+  const ZOOM_BTN = { '328,461': 1, '328,506': -1 };
+  // 「크게 보기」·「도시 전체」 화면은 눌리는 쪽 버튼 하나만 있으므로 반대쪽 버튼도 채워 넣는다
+  if (MAPS) for (const sid of Object.keys(MAPS.S)) {
+    const sc = S[sid]; if (!sc) continue;
+    const has = (k) => sc.c.some((c) => c.k === 'h' && c.b[0] + ',' + c.b[1] === k && c.b[2] === 44);
+    const ks = Object.keys(ZOOM_BTN);
+    if (ks.some(has)) for (const k of ks) if (!has(k)) { const [x, y] = k.split(',').map(Number); sc.c.push({ k: 'h', b: [x, y, 44, 44], r: [] }); }
+  }
+  function zoomButton(it, ctx, dir) {
+    const [x, y, w, h] = it.b, k = dir > 0 ? 'plus' : 'minus';
+    const e = el('div', 'hot zoom', { left: px(x), top: px(y), width: px(w), height: px(h) });
+    const on = el('img', 'zg', { left: px(10), top: px(9), width: px(24), height: px(24) }), off = el('img', 'zg off', { left: px(10), top: px(9), width: px(24), height: px(24) });
+    on.src = 'img/zoom/' + k + '-on.webp'; off.src = 'img/zoom/' + k + '-off.webp';
+    on.alt = off.alt = ''; on.draggable = off.draggable = false;
+    e.append(on, off);
+    e.addEventListener('click', (ev2) => { ev2.stopPropagation(); if (ctx.map) ctx.map.zoomStep(dir); });
+    (ctx.zoomBtns || (ctx.zoomBtns = [])).push({ e, dir });
+    ctx.afterMount.push(() => { if (ctx.map) ctx.map.apply(); });
+    return e;
+  }
+
   // 「현재 위치」 알림을 띄우는 버튼 = 지도의 현재 위치(GPS) 버튼
   const isLocate = (refs) => (refs || []).some((k) => A[k] && A[k].a.some((a) => a.t === 'NODE' && a.n === 'OVERLAY' && S[a.d] && /^Toast · 현재 위치/.test(S[a.d].n)));
 
@@ -246,6 +270,8 @@
   // 지도 바탕은 4200×5000(원본 단위) 한 장을 4단계 타일로 나눠 두고, 지금 배율에 맞는 타일만 불러온다.
   // 경로·라벨·핀은 SVG라 어느 배율에서도 선명하다. 핀·라벨은 일정 배율 이상 커지지 않는다.
   const MK_CAP = 1.3;
+  // 한 손가락 확대(두 번 톡 후 위아래로 끌기) 빠르기: 140pt 끌면 2배(예전 0.012는 58pt에 2배라 너무 빨랐다)
+  const QZ_RATE = 0.005;
   // 내 위치(경로 출발점 = 우리 집 앞). 원의 가운데가 출발점에 오도록 그린 핀이다.
   const ME = { f: 'me2', t: 's', cx: 2100, cy: 2580, w: 64, h: 64 };
   const marksOf = (M) => (M.mk.some((m) => /^me/.test(m.f)) ? M.mk : M.mk.concat([ME]));
@@ -282,12 +308,19 @@
       if (bd > 60) m.target = null;
     }
     // 지도 안의 누르는 곳(시설 핀)은 그 핀에 붙인다
-    for (const c of it.c || []) {
-      if (c.k !== 'h') continue;
-      const mx = (c.b[0] + it.cb[0] + c.b[2] / 2 - M.ix) / M.s0, my = (c.b[1] + it.cb[1] + c.b[3] / 2 - M.iy) / M.s0;
-      let best = null, bd = 1e9;
-      for (const m of marks) if (m.t === 'm') { const d = Math.hypot(m.x + m.w / 2 - mx, m.y + m.h / 2 - my); if (d < bd) { bd = d; best = m; } }
-      if (best && bd < 80) { best.e.classList.add('tap'); attachReactions(best.e, c.r, ctx); }
+    // 같은 경로의 「크게 보기」·「도시 전체」 화면에만 있던 시설 핀도 여기서 누를 수 있게 한다(+ − 버튼이 이제 화면을 바꾸지 않으므로)
+    const base = (n) => n.replace(/ · (크게 보기|도시 전체)$/, '');
+    const famIds = [ctx.sid].concat(Object.keys(MAPS.S).filter((k) => k !== ctx.sid && S[k] && base(S[k].n) === base(S[ctx.sid].n)));
+    for (const sid of famIds) {
+      const it2 = sid === ctx.sid ? it : S[sid].c.find((c) => c.k === 's' && !c.fl), M2 = MAPS.S[sid];
+      if (!it2 || it2.b[1] !== it.b[1] || it2.b[3] !== it.b[3]) continue;
+      for (const c of it2.c || []) {
+        if (c.k !== 'h') continue;
+        const mx = (c.b[0] + it2.cb[0] + c.b[2] / 2 - M2.ix) / M2.s0, my = (c.b[1] + it2.cb[1] + c.b[3] / 2 - M2.iy) / M2.s0;
+        let best = null, bd = 1e9;
+        for (const m of marks) if (m.t === 'm') { const d = Math.hypot(m.x + m.w / 2 - mx, m.y + m.h / 2 - my); if (d < bd) { bd = d; best = m; } }
+        if (best && bd < 80 && !best.e.classList.contains('tap')) { best.e.classList.add('tap'); attachReactions(best.e, c.r, ctx); }
+      }
     }
     function placeMarks() {
       const { s, tx, ty } = cam, ms = Math.min(s, MK_CAP);
@@ -347,9 +380,13 @@
       const fit = (t, size, view) => (size * cam.s <= view ? (view - size * cam.s) / 2 : Math.min(0, Math.max(view - size * cam.s, t)));
       cam.tx = fit(cam.tx, MW, w); cam.ty = fit(cam.ty, MH, h);
     }
+    let zEdge = '';
     function apply() {
       world.style.transform = 'translate3d(' + cam.tx + 'px,' + cam.ty + 'px,0) scale(' + cam.s + ')';
       placeMarks(); needTiles();
+      const edge = (cam.s >= sMax * 0.999 ? '+' : '') + (cam.s <= sMin * 1.001 ? '-' : '');
+      const nb = (ctx.zoomBtns || []).length;
+      if (edge + nb !== zEdge) { zEdge = edge + nb; for (const b of ctx.zoomBtns || []) b.e.classList.toggle('off', edge.includes(b.dir > 0 ? '+' : '-')); }
     }
     function zoomAt(px0, py0, f, soft) { const s2 = Math.min(soft ? sMax * 1.25 : sMax, Math.max(soft ? sMin * 0.8 : sMin, cam.s * f)); cam.tx = px0 - (px0 - cam.tx) * (s2 / cam.s); cam.ty = py0 - (py0 - cam.ty) * (s2 / cam.s); cam.s = s2; }
 
@@ -372,6 +409,13 @@
         const b = { s: c2.s, cx: (w / 2 - c2.tx) / c2.s, cy: (h / 2 - c2.ty) / c2.s };
         animate(dur || 420, (k) => { const s = a.s * Math.pow(b.s / a.s, k), cx = a.cx + (b.cx - a.cx) * k, cy = a.cy + (b.cy - a.cy) * k; cam.s = s; cam.tx = w / 2 - cx * s; cam.ty = h / 2 - cy * s; }, res);
       });
+    }
+    // + − 버튼: 지도 가운데를 기준으로 두 배씩. 이미 끝이면 그쪽으로 살짝 밀렸다 돌아온다
+    function zoomStep(dir) {
+      const atEdge = dir > 0 ? cam.s >= sMax * 0.999 : cam.s <= sMin * 1.001;
+      if (!atEdge) { zoomAnim(w / 2, h / 2, dir > 0 ? 2 : 0.5, 300); return; }
+      const c0 = { ...cam }, f = dir > 0 ? 1.06 : 0.94;
+      animate(260, (k) => { const s2 = c0.s * Math.pow(f, Math.sin(Math.PI * k)); cam.s = s2; cam.tx = w / 2 - (w / 2 - c0.tx) * (s2 / c0.s); cam.ty = h / 2 - (h / 2 - c0.ty) * (s2 / c0.s); clampCam(true); }, () => { Object.assign(cam, c0); apply(); });
     }
     function settle() { const c = { ...cam }; clampCam(false); if (Math.abs(c.s - cam.s) > 1e-4) { const t = { ...cam }; Object.assign(cam, c); flyTo(t, 220); } else apply(); }
 
@@ -400,7 +444,7 @@
         const dy = pts.get(e.pointerId)[1] - qz.y0;
         if (!qz.on && Math.abs(dy) < 6) return;
         if (!qz.on) { qz.on = true; moved = true; unfollow(); }
-        const s2 = Math.min(sMax * 1.25, Math.max(sMin * 0.8, qz.s0 * Math.exp(dy * 0.012)));
+        const s2 = Math.min(sMax * 1.25, Math.max(sMin * 0.8, qz.s0 * Math.exp(dy * QZ_RATE)));
         cam.s = s2; cam.tx = qz.x - (qz.x - qz.tx0) * (s2 / qz.s0); cam.ty = qz.y - (qz.y - qz.ty0) * (s2 / qz.s0);
         clampCam(true); apply(); return;
       }
@@ -468,7 +512,7 @@
     }
 
     clampCam(false); apply();
-    ctx.map = { flyTo, box, top: by, h, apply, locate, urls: () => initialUrls() };
+    ctx.map = { flyTo, box, top: by, h, apply, locate, zoomStep, urls: () => initialUrls() };
     function initialUrls() {
       const need = cam.s * ctx.scale() * (window.devicePixelRatio || 1);
       let li = levels.findIndex((L) => L.ls >= need * 0.92); if (li < 0) li = levels.length - 1;
@@ -640,6 +684,7 @@
       if (k.k === 's' && !k.fl && isMap) continue; if (k.img) add(k.img); if (k.img2) add(k.img2); walk(k.c); } };
     walk(sc.c);
     if (sc.cp) { const f = id.replace(':', '_'); out.push('img/card/sh-' + f + '.webp', 'img/card/it-' + f + '.webp'); }  // 카드 넘기기 보정 그림
+    if (isMap) for (const k of ['plus-on', 'plus-off', 'minus-on', 'minus-off']) out.push('img/zoom/' + k + '.webp');  // 지도 + − 버튼 그림
     return out.concat(mapUrls(id));
   }
   const preload = (id) => Promise.all(screenUrls(id).map((u) => load(u, true)));

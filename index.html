@@ -122,6 +122,11 @@ footer{font-size:12px;color:#8a9a8f}
 .hot.gps{border-radius:50%;background:#fff;box-shadow:0 0 0 1px #D6EBD0,0 2px 6px rgba(23,58,48,.08);display:flex;align-items:center;justify-content:center;color:#184133;transition:color .2s ease,transform .15s ease}
 .hot.gps:active{transform:scale(.94)}
 .hot.gps.on{color:#1E88FF}
+.hot.zoom{border-radius:22px}
+.hot.zoom .zg{position:absolute;pointer-events:none;transition:opacity .15s ease}
+.hot.zoom .zg.off,.hot.zoom.off .zg:not(.off){opacity:0}
+.hot.zoom.off .zg.off{opacity:1}
+.hot.zoom.off{cursor:default}
 .map .me-halo{position:absolute;left:0;top:0;width:0;height:0}
 .map .me-halo i,.map .me-halo::after{content:'';position:absolute;left:-32px;top:-32px;width:64px;height:64px;border-radius:50%;opacity:0;pointer-events:none}
 .map .me-halo i{background:rgba(30,136,255,.22)}
@@ -160,6 +165,6 @@ body.mobile #stage{border-radius:0;box-shadow:none;background:#FFF9EC;flex:none}
 <script src="data.js?v=12"></script>
 <script src="map/maps.js?v=8"></script>
 <script src="lqip.js?v=8"></script>
-<script src="player.js?v=15"></script>
+<script src="player.js?v=16"></script>
 </body>
 </html>
