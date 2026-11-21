@@ -1112,14 +1112,24 @@
   function fit() {
     const mobile = window.matchMedia('(max-width: 600px)').matches;
     document.body.classList.toggle('mobile', mobile);
+    // 휴대폰에서는 그림 속 가짜 상태 표시줄(위 54)·홈 막대(아래 28)·둥근 모서리(양옆 2)를 잘라 실제 앱처럼 화면만 보이게 한다
+    const cut = mobile ? { t: 54, b: 28, x: 2 } : { t: 0, b: 0, x: 0 };
+    const vw = W - cut.x * 2, vh = H - cut.t - cut.b;
+    const padT = mobile ? parseFloat(getComputedStyle(document.body).paddingTop) || 0 : 0;
     const availW = mobile ? window.innerWidth : window.innerWidth - 48;
     const chrome = document.querySelector('header').offsetHeight + document.querySelector('footer').offsetHeight + 56;
-    const availH = mobile ? window.innerHeight : window.innerHeight - chrome;
-    scale = Math.min(availW / W, availH / H, mobile ? 4 : 1.15);
-    device.style.transform = 'scale(' + scale + ')';
-    stage.style.width = px(W * scale); stage.style.height = px(H * scale);
+    const availH = mobile ? window.innerHeight - padT : window.innerHeight - chrome;
+    scale = Math.min(availW / vw, availH / vh, mobile ? 4 : 1.15);
+    device.style.transform = 'translate(' + (-cut.x * scale) + 'px,' + (-cut.t * scale) + 'px) scale(' + scale + ')';
+    stage.style.width = px(vw * scale); stage.style.height = px(vh * scale);
   }
   window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', () => setTimeout(fit, 300));
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (!standalone && /Android/i.test(navigator.userAgent) && document.documentElement.requestFullscreen) {
+    const goFull = () => { if (!document.fullscreenElement && document.body.classList.contains('mobile')) document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}); };
+    document.addEventListener('pointerup', goFull, { once: true, capture: true });
+  }
   document.getElementById('restart').addEventListener('click', () => { resetVars(); hist.length = 0; while (overlays.length) closeOverlay(); go(D.START, { k: 'fade', ms: 220 }); });
 
   // 확인용: 콘솔에서 NAVI.go('화면 이름')
