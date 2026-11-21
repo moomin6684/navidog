@@ -849,6 +849,8 @@
     const gone = [prev && prev.root, skel].filter(Boolean);
     const done = () => { gone.forEach((g) => g.remove()); next.root.style.zIndex = ''; next.root.classList.remove('lift'); };
     const k = prev && mode ? mode.k : null;
+    // 세로가 모자라 페이지를 내려 둔 상태에서 새 화면으로 가면 맨 위부터 보이게 한다(카드 넘기기·시트는 그대로)
+    if (prev && window.scrollY > 0 && k !== 'slide' && k !== 'sheetup' && k !== 'sheetdown' && prev.id !== next.id) window.scrollTo(0, 0);
     if (!k) { done(); return; }
     if (skel && (k === 'push' || k === 'pop' || k === 'slide')) mode = { k: 'fade', ms: 200 };
     if (k === 'sheetup' && next.sheet) {
@@ -1119,7 +1121,9 @@
     const availW = mobile ? window.innerWidth : window.innerWidth - 48;
     const chrome = document.querySelector('header').offsetHeight + document.querySelector('footer').offsetHeight + 56;
     const availH = mobile ? window.innerHeight - padT : window.innerHeight - chrome;
-    scale = Math.min(availW / vw, availH / vh, mobile ? 4 : 1.15);
+    // 휴대폰은 항상 가로를 꽉 채운다. 세로가 모자라면(사파리 주소창이 펼쳐진 경우) 페이지를 살짝 끌어 올려 보게 하고, 그러면 사파리가 주소창을 접는다
+    scale = mobile ? Math.min(availW / vw, 4) : Math.min(availW / vw, availH / vh, 1.15);
+    document.documentElement.classList.toggle('mscroll', mobile && vh * scale > availH + 1);
     device.style.transform = 'translate(' + (-cut.x * scale) + 'px,' + (-cut.t * scale) + 'px) scale(' + scale + ')';
     stage.style.width = px(vw * scale); stage.style.height = px(vh * scale);
   }
@@ -1164,7 +1168,17 @@
     settled(s.animate([{ transform: 'scale(0)', opacity: 1 }, { transform: 'scale(1)', opacity: 0 }], { duration: 560, easing: EASE, fill: 'forwards' })).then(() => s.remove());
   }, true);
   document.addEventListener('gesturestart', (e) => e.preventDefault());
-  document.addEventListener('touchmove', (e) => { if (!e.target.closest('.scr,.map')) e.preventDefault(); }, { passive: false });
+  // 화면 밖으로 끌려가는 것을 막되, 페이지가 화면보다 길 때(휴대폰 세로 부족)는 세로로 끄는 손짓만 페이지 스크롤로 넘긴다
+  let tg = null;
+  document.addEventListener('touchstart', (e) => { const t = e.touches[0]; tg = e.touches.length === 1 ? { x: t.clientX, y: t.clientY, v: null } : null; }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (e.target.closest('.scr,.map')) return;
+    if (tg && document.documentElement.classList.contains('mscroll') && e.touches.length === 1) {
+      if (tg.v === null) { const t = e.touches[0], dx = Math.abs(t.clientX - tg.x), dy = Math.abs(t.clientY - tg.y); if (dx + dy < 3) return; tg.v = dy > dx; }
+      if (tg.v) return;
+    }
+    e.preventDefault();
+  }, { passive: false });
   const toast = document.getElementById('toast');
   function say(msg, action) {
     if (!toast) return;
