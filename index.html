@@ -141,7 +141,8 @@ footer{font-size:12px;color:#8a9a8f}
 @media (prefers-reduced-motion:reduce){.map.follow .me-halo i{animation:none}}
 body.mobile{gap:0;background:#FFF9EC;padding:env(safe-area-inset-top) 0 0;justify-content:flex-start}
 body.mobile header,body.mobile footer{display:none}
-html.mscroll{height:auto;overflow-x:hidden;overflow-y:auto}html.mscroll body{height:auto;min-height:100%;overflow:visible}
+/* 세로가 모자랄 때는 페이지 자체가 아니라 body 안에서만 스크롤한다 — 페이지가 밀리면 사파리가 위쪽을 흐리게 덮는다 */
+html.mscroll body{overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}
 body.mobile #stage{border-radius:0;box-shadow:none;background:#FFF9EC;flex:none}
 .dog{position:absolute;pointer-events:none}
 .dog-pl{position:absolute;left:0;top:0;width:100%;height:100%}
@@ -159,6 +160,6 @@ body.mobile #stage{border-radius:0;box-shadow:none;background:#FFF9EC;flex:none}
 <script src="data.js?v=12"></script>
 <script src="map/maps.js?v=8"></script>
 <script src="lqip.js?v=8"></script>
-<script src="player.js?v=14"></script>
+<script src="player.js?v=15"></script>
 </body>
 </html>

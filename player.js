@@ -721,6 +721,8 @@
   // ---------- 코스 카드 묶음 ----------
   const RES = /^(S01 · (오늘의 코스|넘기기|필터 결과)|PR · )/;
   const isCard = (id) => !!S[id] && RES.test(S[id].n);
+  // 「끝에서 더 넘김」(E08)은 디자인 확인용 정지 화면(옛 배지·틀린 점 위치)이라 쓰지 않는다 — 마지막 카드에서는 고무줄처럼 되돌아온다
+  const isEndBounce = (id) => !!S[id] && /넘기기 E08/.test(S[id].n);
   const cardIdx = (id) => { const n = S[id].n; if (/E08/.test(n)) return 99; const m = n.match(/(\d+)번째/); return m ? +m[1] : 1; };
   const fam = (id) => { const f = S[id].n.split(' · ')[0]; return f === 'PR' ? 'S01' : f === 'PF' ? 'S02' : f; };
   const nbCache = new Map();
@@ -731,7 +733,7 @@
     const firstNav = (acts) => { for (const a of acts || []) { if (a.t === 'NODE' && a.n === 'NAVIGATE' && a.d) return a.d; if (a.t === 'CONDITIONAL') { const d = firstNav(a.cb[0] && a.cb[0].a); if (d) return d; } } return null; };
     const consider = (k) => {
       const a = A[k]; if (!a || (a.tg.t !== 'ON_CLICK' && a.tg.t !== 'ON_DRAG')) return;
-      const d = firstNav(a.a); if (!d || !isCard(d) || d === id) return;
+      const d = firstNav(a.a); if (!d || !isCard(d) || d === id || isEndBounce(d)) return;
       const di = cardIdx(d); if (di === me) return;
       const drag = a.tg.t === 'ON_DRAG';
       if (di > me) { if (!out.next || di < out.next.i || (di === out.next.i && drag)) out.next = { d, k, i: di }; }
@@ -744,7 +746,7 @@
   }
   // 카드가 차지하는 세로 범위(넘기는 띠). 끌기 반응이 걸린 카드 영역을 쓴다.
   // 위 경계는 필터 버튼과 카드 사이 빈 줄(291), 아래는 카드 그림자가 끝나는 줄(691)까지 — 그림자를 중간에서 자르면 카드가 빠진 자리에 가로선이 남는다.
-  const CARD_SH = [672, 691];   // 카드 아래 그림자 구간: 이 안의 화살표·점·발자국 장식은 보정 그림으로 제자리에 고정한다
+  const CARD_SH = [672, 691], ROW_END = 722;   // 카드 아래 그림자 구간: 이 안의 화살표·점·발자국 장식은 보정 그림으로 제자리에 고정한다
   function cardBand(id, other) {
     const find = (sid) => { if (!sid || !S[sid]) return null; for (const it of S[sid].c) if (it.k === 'h' && (it.r || []).some((k) => A[k] && A[k].tg.t === 'ON_DRAG')) return it.b; return null; };
     // 끌기 반응이 없는 카드 화면(필터 결과의 2·3번째 등)도 카드 자리는 같다
@@ -767,13 +769,24 @@
       track.appendChild(c);
     }
     band.appendChild(track); device.appendChild(band);
-    const pin = (sid, fade) => {
+    // 점·화살표 줄은 한 덩어리로 고정한다: 그림자 구간(672~691)은 장식만 든 보정 그림, 그 아래(689~722)는 그 화면을 그대로 잘라 붙인다.
+    // 줄의 위아래 반쪽이 서로 다른 화면 것이 되면 점 옆에 선이 생기므로, 앞 화면 덩어리는 새 덩어리와 같은 시간에 사라지게 한다.
+    const pin = (sid, fade, root) => {
       if (!sid || !S[sid] || !S[sid].cp || y1 < CARD_SH[1]) return;
-      const it = cardPatch('it', sid); it.classList.add('pin'); it.style.top = px(CARD_SH[0]);
-      device.appendChild(it); pins.push(it);
-      if (fade) anim(it, [{ opacity: 0 }, { opacity: 1 }], fade, EASE_IO);
+      const it = el('div', 'card-pin', { position: 'absolute', left: 0, top: 0, width: px(W), height: px(H), zIndex: 6, pointerEvents: 'none' });
+      if (root) {
+        const low = root.cloneNode(true);
+        low.style.cssText += ';position:absolute;left:0;top:0;transform:none;opacity:1;z-index:auto;clip-path:inset(' + (CARD_SH[1] - 2) + 'px 0 ' + (H - ROW_END) + 'px 0)';
+        low.querySelectorAll('.ripple,.dim,.card-patch').forEach((r) => r.remove());
+        it.appendChild(low);
+      }
+      const deco = cardPatch('it', sid); deco.style.top = px(CARD_SH[0]); it.appendChild(deco);
+      // 새 덩어리는 밑에 불투명하게 깔고 앞 덩어리만 사라지게 한다(둘 다 반투명이면 띠 경계가 비친다)
+      if (fade && pins.length) { pins.forEach((o) => anim(o, [{ opacity: 1 }, { opacity: 0 }], fade, EASE_IO)); device.insertBefore(it, pins[0]); }
+      else device.appendChild(it);
+      pins.push(it);
     };
-    pin(parts[0] && parts[0][2]);
+    pin(parts[0] && parts[0][2], 0, parts[0] && parts[0][0]);
     return { band, track, pin, set: (x) => { track.style.transform = 'translate3d(' + x + 'px,0,0)'; }, remove: () => { band.remove(); pins.forEach((p) => p.remove()); } };
   }
   let swipeHint = null, swiping = false;
@@ -850,7 +863,7 @@
     const done = () => { gone.forEach((g) => g.remove()); next.root.style.zIndex = ''; next.root.classList.remove('lift'); };
     const k = prev && mode ? mode.k : null;
     // 세로가 모자라 페이지를 내려 둔 상태에서 새 화면으로 가면 맨 위부터 보이게 한다(카드 넘기기·시트는 그대로)
-    if (prev && window.scrollY > 0 && k !== 'slide' && k !== 'sheetup' && k !== 'sheetdown' && prev.id !== next.id) window.scrollTo(0, 0);
+    if (prev && document.body.scrollTop > 0 && k !== 'slide' && k !== 'sheetup' && k !== 'sheetdown' && prev.id !== next.id) document.body.scrollTop = 0;
     if (!k) { done(); return; }
     if (skel && (k === 'push' || k === 'pop' || k === 'slide')) mode = { k: 'fade', ms: 200 };
     if (k === 'sheetup' && next.sheet) {
@@ -911,7 +924,7 @@
     } else if (mode.k === 'slide') {
       const [y0, y1] = cardBand(prev.id, next.id), dir = mode.dir;
       const fx = mode.fx || makeBand(y0, y1, [[prev.root, 0, prev.id], [next.root, dir * W, next.id]]);
-      fx.pin(next.id, 180);
+      fx.pin(next.id, 180, next.root);
       fx.band.style.zIndex = 5;
       const from = mode.d || 0, ms = mode.fx ? 300 : 420;
       next.root.style.zIndex = 2;
@@ -1088,6 +1101,7 @@
         for (const b of a.cb) { if (b.c == null || ev(b.c)) { run(b.a, from); break; } }
       } else if (a.t === 'NODE' && (a.n === 'NAVIGATE' || a.n === 'SWAP') && a.d) {
         if (a.n === 'SWAP' && overlays.length) { closeOverlay(); openOverlay(a.d); continue; }
+        if (isEndBounce(a.d)) continue;
         while (overlays.length) closeOverlay();
         navigate(a.d, a.tr);
       } else if (a.t === 'NODE' && a.n === 'OVERLAY' && a.d) openOverlay(a.d);
