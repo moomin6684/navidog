@@ -5,6 +5,52 @@
   const MAPS = window.MAPS, LQIP = window.LQIP || {};
   const W = 393, H = 852;
 
+  // ---------- 기기 높이에 맞추는 자동 배치 ----------
+  // 화면 그림은 393×852 한 장이라 그대로는 기기마다 세로가 남거나 모자란다. 화면마다 비어 있는 세로 구간(flex.js)을 늘이고 줄여 기기 높이에 맞춘다.
+  // 머리글(구간 위)은 그대로, 구간 아래 요소(하단 버튼·바)는 그만큼 위아래로 옮긴다. 줄일 때는 구간 그림을 세로로 눌러 담고, 늘일 때는 가장 큰 구간 가운데에 빈 줄 색을 채운다.
+  const FLEX = window.FLEX || {}, FREE = window.FLEX_FREE || {};
+  const SQUASH = 0.4;   // 구간은 따로 정하지 않으면 원래 높이의 40%까지만 누른다
+  const capOf = (b) => (b[1] - b[0]) * (1 - (b[4] != null ? b[4] : SQUASH));
+  // 모든 화면이 줄일 수 있는 양 중 가장 작은 값 — 이보다 더 짧은 기기는 남는 만큼 화면 전체를 조금 작게 그린다
+  const CAP = Math.floor(Math.min(...Object.entries(FLEX).map(([id, bs]) => bs.reduce((t, b) => t + capOf(b), 0) + (FREE[id] ? FREE[id][0] : 0))));
+  let DY = 0, DH = H, CARD_OFF = 0;
+  const ORIG = {}, PLAN = {};
+  function plan(id) {
+    const bs = FLEX[id]; if (!bs || !DY) return null;
+    const len = bs.map((b) => b[1] - b[0]), cap = bs.map(capOf), tot = cap.reduce((a, b) => a + b, 0), big = len.indexOf(Math.max(...len));
+    // 줄일 때는 구간마다 줄일 수 있는 양에 비례해 나누고, 그래도 남으면(카드 화면) 맨 아래 안내 문구 자리를 잘라 낸다
+    return bs.map((b, i) => ({ a: b[0], b: b[1], col: b[2], art: b[3] === 'a',
+      d: DY < 0 ? Math.max(-cap[i], DY * cap[i] / tot) : (i === big ? DY : 0) }));
+  }
+  // 원래 세로 위치 → 이 기기에서의 위치
+  const mapper = (p) => (y) => {
+    if (!p) return y;
+    let off = 0;
+    for (const s of p) {
+      if (y <= s.a) return y + off;
+      if (y < s.b) {
+        if (s.d < 0 || s.art) return s.a + off + (y - s.a) * (s.b - s.a + s.d) / (s.b - s.a);
+        return y + off + (y >= (s.a + s.b) / 2 ? s.d : 0);
+      }
+      off += s.d;
+    }
+    return y + off;
+  };
+  function relayout() {
+    for (const id of Object.keys(S)) {
+      if (!ORIG[id]) ORIG[id] = S[id].c;
+      const p = plan(id), f = mapper(p);
+      PLAN[id] = p; S[id].h = DH;
+      S[id].c = p ? ORIG[id].map((c) => {
+        const [x, y, w, h] = c.b, y2 = f(y);
+        const grow = c.k === 's' || (c.k === 'h' && h >= 120);   // 스크롤 영역·지도·큰 누름 영역은 높이도 따라 바뀐다
+        return Object.assign({}, c, { b: [x, y2, w, grow ? f(y + h) - y2 : h], ob: c.b });
+      }) : ORIG[id];
+    }
+    const card = Object.keys(FLEX).find((id) => isCard(id));
+    CARD_OFF = card ? mapper(PLAN[card])(400) - 400 : 0;
+  }
+
   // ---------- 변수 ----------
   const vars = [];
   function resetVars() {
@@ -89,8 +135,8 @@
     return t;
   }
   function hotspot(it, ctx) {
-    const [x, y, w, h] = it.b;
-    if (MAPS && MAPS.S[ctx.sid] && ZOOM_BTN[x + ',' + y] && w === 44 && h === 44) return zoomButton(it, ctx, ZOOM_BTN[x + ',' + y]);
+    const [x, y, w, h] = it.b, [ox, oy] = it.ob || it.b;
+    if (MAPS && MAPS.S[ctx.sid] && ZOOM_BTN[ox + ',' + oy] && w === 44 && h === 44) return zoomButton(it, ctx, ZOOM_BTN[ox + ',' + oy]);
     const e = el('div', 'hot', { left: px(x), top: px(y), width: px(w), height: px(h) });
     attachReactions(e, it.r, ctx);
     if (isLocate(it.r)) {
@@ -550,7 +596,7 @@
     const ctx = { afterMount: [], scale: () => scale, timers: [], sid: id, map: null };
     const root = el('div', 'screen sheet-scr', { width: px(sc.w), height: px(sc.h) });
     const under = el('div', 'sheet-under'), dim = el('div', 'sheet-dim hot full');
-    const panel = el('div', 'sheet', { top: px(SHEET_TOP), height: px(sc.h - SHEET_TOP) });
+    const panel = el('div', 'sheet', { top: px(SHEET_TOP + DY), height: px(H - SHEET_TOP) });
     for (const [a, b, d] of SHEET_SEG) {
       const seg = el('div', 'sheet-seg', { top: px(d), height: px(b - a) });
       seg.appendChild(img(sc.L[0], { top: px(-a) }));
@@ -585,7 +631,7 @@
       if (!st || e.pointerId !== st.pid) return;
       const d = (e.clientY - st.y0) / scale, dy = d > 0 ? d : -Math.min(14, -d * 0.2);
       scr.sheet.dy = dy; panel.style.transform = 'translate3d(0,' + dy + 'px,0)';
-      dim.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / (H - SHEET_TOP)));
+      dim.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / (DH - SHEET_TOP - DY)));
       st.v.push([performance.now(), dy]); if (st.v.length > 5) st.v.shift();
     });
     const up = (e) => {
@@ -600,6 +646,35 @@
     panel.addEventListener('pointerup', up); panel.addEventListener('pointercancel', up);
   }
 
+  // 화면 바탕 그림을 자동 배치 구간에 맞춰 띠 조각으로 나눠 그린다(조각끼리 1pt 겹쳐 이음매가 비치지 않게)
+  function layer(id, key, first) {
+    const p = PLAN[id], m = IMG[key]; if (!p || !m) return img(key);
+    const f = mapper(p), box = el('div', 'lyr-flex', { height: px(DH) });
+    const seg = (y0, y1, k) => {
+      const s = el('div', 'seg', { top: px(f(y0)), height: px((y1 - y0) * k + 1) });
+      const i = img(key, { top: px(-y0 - (m.oy || 0)) });
+      if (k !== 1) { i.style.transform = 'scaleY(' + k + ')'; i.style.transformOrigin = '0 ' + (y0 + (m.oy || 0)) + 'px'; }
+      s.appendChild(i); box.appendChild(s);
+    };
+    let y = 0;
+    for (const s of p) {
+      if (s.a > y) seg(y, s.a, 1);
+      if (s.d < 0 || s.art) seg(s.a, s.b, (s.b - s.a + s.d) / (s.b - s.a));
+      else {
+        const mid = Math.round((s.a + s.b) / 2);
+        seg(s.a, mid, 1);
+        if (first && s.d > 0) box.appendChild(el('div', 'seg', { top: px(f(s.a) + mid - s.a), height: px(s.d + 1), background: s.col }));
+        seg(mid, s.b, 1);
+      }
+      y = s.b;
+    }
+    seg(y, H, 1);
+    // 맨 아래를 잘라 내야 할 만큼 짧으면 반쯤 잘린 안내 문구가 남지 않게 바탕색으로 덮는다(위에 뜨는 바는 그대로 보인다)
+    const fr = FREE[id], used = p.reduce((t, s) => t + s.d, 0);
+    if (first && fr && DY - used < -5) box.appendChild(el('div', 'seg', { top: px(f(fr[1])), height: px(DH - f(fr[1])), background: p[p.length - 1].col }));
+    return box;
+  }
+
   function buildScreen(id) {
     if (isSheet(id)) return buildSheet(id);
     const sc = S[id];
@@ -609,7 +684,7 @@
     const cuts = sc.c.filter((c) => c.k === 's' && c.z != null).map((c) => c.z).sort((a, b) => a - b);
     const layerOf = (z) => cuts.filter((c) => c < z).length;
     for (let L = 0; L < sc.L.length; L++) {
-      root.appendChild(img(sc.L[L]));
+      root.appendChild(layer(id, sc.L[L], L === 0));
       const items = sc.c.filter((c) => !(c.k === 's' && c.z != null && cuts.includes(c.z)) && layerOf(c.z == null ? 1e9 : c.z) === L);
       renderItems(items, root, binds, ctx, sc.w);
       if (L < cuts.length) renderItems(sc.c.filter((c) => c.k === 's' && c.z === cuts[L]), root, binds, ctx);
@@ -757,7 +832,7 @@
     return { x: (r.left - d.left) / scale, y: (r.top - d.top) / scale, w: r.width / scale, h: r.height / scale };
   }
   const isBackTap = (t) => t && t.x < 80 && t.y > 40 && t.y < 130 && t.w <= 64;
-  const isCtaTap = (t) => t && t.y >= 640 && t.w >= 200;
+  const isCtaTap = (t) => t && t.y >= 640 + Math.min(0, DY) && t.w >= 200;
   // 우리 강아지 설정 단계(머리글 오른쪽 발자국 3개 = 진행 단계)
   const STEP_NAMES = { 'S00 · 강아지 크기': 1, 'S00 · 나이와 건강': 2, 'S00 · 추천 기준 확인': 3 };
   const stepOf = (id) => (S[id] && STEP_NAMES[S[id].n]) || 0;
@@ -795,9 +870,9 @@
   function cardBand(id, other) {
     const find = (sid) => { if (!sid || !S[sid]) return null; for (const it of S[sid].c) if (it.k === 'h' && (it.r || []).some((k) => A[k] && A[k].tg.t === 'ON_DRAG')) return it.b; return null; };
     // 끌기 반응이 없는 카드 화면(필터 결과의 2·3번째 등)도 카드 자리는 같다
-    const b = find(id) || find(other) || [12, 287.5, 369, 397.3];
+    const b = find(id) || find(other) || [12, 287.5 + CARD_OFF, 369, 397.3];
     const cp = (S[id] && S[id].cp) || (other && S[other] && S[other].cp);
-    return [Math.max(0, b[1] + 3.5), cp ? CARD_SH[1] : Math.min(H, b[1] + b[3] - 5.8)];
+    return [Math.max(0, b[1] + 3.5), cp ? CARD_SH[1] + CARD_OFF : Math.min(DH, b[1] + b[3] - 5.8)];
   }
   const cardPatch = (kind, sid) => { const i = el('img', 'card-patch'); i.src = 'img/card/' + kind + '-' + sid.replace(':', '_') + '.webp'; i.alt = ''; i.draggable = false; return i; };
   // 넘기는 띠: 화면 전체 폭으로 카드 높이만큼 잘라 낸 그림을 가로로 이어 붙인다.
@@ -810,22 +885,22 @@
       const c = root.cloneNode(true);
       c.style.cssText += ';position:absolute;top:' + px(-y0) + ';left:' + px(off) + ';transform:none;opacity:1;z-index:auto';
       c.querySelectorAll('.ripple').forEach((r) => r.remove());
-      if (sid && S[sid] && S[sid].cp && y1 >= CARD_SH[1]) { const sh = cardPatch('sh', sid); sh.style.top = px(CARD_SH[0]); c.appendChild(sh); }
+      if (sid && S[sid] && S[sid].cp && y1 >= CARD_SH[1] + CARD_OFF) { const sh = cardPatch('sh', sid); sh.style.top = px(CARD_SH[0] + CARD_OFF); c.appendChild(sh); }
       track.appendChild(c);
     }
     band.appendChild(track); device.appendChild(band);
     // 점·화살표 줄은 한 덩어리로 고정한다: 그림자 구간(672~691)은 장식만 든 보정 그림, 그 아래(689~722)는 그 화면을 그대로 잘라 붙인다.
     // 줄의 위아래 반쪽이 서로 다른 화면 것이 되면 점 옆에 선이 생기므로, 앞 화면 덩어리는 새 덩어리와 같은 시간에 사라지게 한다.
     const pin = (sid, fade, root) => {
-      if (!sid || !S[sid] || !S[sid].cp || y1 < CARD_SH[1]) return;
-      const it = el('div', 'card-pin', { position: 'absolute', left: 0, top: 0, width: px(W), height: px(H), zIndex: 6, pointerEvents: 'none' });
+      if (!sid || !S[sid] || !S[sid].cp || y1 < CARD_SH[1] + CARD_OFF) return;
+      const it = el('div', 'card-pin', { position: 'absolute', left: 0, top: 0, width: px(W), height: px(DH), zIndex: 6, pointerEvents: 'none' });
       if (root) {
         const low = root.cloneNode(true);
-        low.style.cssText += ';position:absolute;left:0;top:0;transform:none;opacity:1;z-index:auto;clip-path:inset(' + (CARD_SH[1] - 2) + 'px 0 ' + (H - ROW_END) + 'px 0)';
+        low.style.cssText += ';position:absolute;left:0;top:0;transform:none;opacity:1;z-index:auto;clip-path:inset(' + (CARD_SH[1] + CARD_OFF - 2) + 'px 0 ' + (DH - ROW_END - CARD_OFF) + 'px 0)';
         low.querySelectorAll('.ripple,.dim,.card-patch').forEach((r) => r.remove());
         it.appendChild(low);
       }
-      const deco = cardPatch('it', sid); deco.style.top = px(CARD_SH[0]); it.appendChild(deco);
+      const deco = cardPatch('it', sid); deco.style.top = px(CARD_SH[0] + CARD_OFF); it.appendChild(deco);
       // 새 덩어리는 밑에 불투명하게 깔고 앞 덩어리만 사라지게 한다(둘 다 반투명이면 띠 경계가 비친다)
       if (fade && pins.length) { pins.forEach((o) => anim(o, [{ opacity: 1 }, { opacity: 0 }], fade, EASE_IO)); device.insertBefore(it, pins[0]); }
       else device.appendChild(it);
@@ -938,9 +1013,9 @@
       // 우리 강아지 1~3단계: 머리글(뒤로·제목·발자국)은 그대로 두고 아래 내용만 짧게 밀며 바꾼다.
       // 바뀐 발자국은 앞으로 갈 때 톡 채워지고, 뒤로 갈 때 작아지며 빠진다.
       const a = stepOf(prev.id), b = stepOf(next.id), fwd = b > a, sgn = fwd ? 1 : -1, ms = 340;
-      const clip = (y0, y1, x0, x1) => 'inset(' + y0 + 'px ' + (W - x1) + 'px ' + (H - y1) + 'px ' + x0 + 'px)';
+      const clip = (y0, y1, x0, x1) => 'inset(' + y0 + 'px ' + (W - x1) + 'px ' + (DH - y1) + 'px ' + x0 + 'px)';
       const layer = (root, cp, z) => { const c = root.cloneNode(true); c.style.cssText += ';transform:none;opacity:1;z-index:' + z + ';clip-path:' + cp; c.querySelectorAll('.ripple,.dim').forEach((r) => r.remove()); device.appendChild(c); return c; };
-      [prev.root, next.root].forEach((r) => { r.style.clipPath = clip(STEP_HDR, H, 0, W); });
+      [prev.root, next.root].forEach((r) => { r.style.clipPath = clip(STEP_HDR, DH, 0, W); });
       prev.root.style.zIndex = 1; next.root.style.zIndex = 2;
       const head = layer((fwd ? prev : next).root, clip(0, STEP_HDR, 0, W), 3);
       const pops = [];
@@ -1039,7 +1114,8 @@
     filter: { ms: 1500, title: '조건에 맞는 코스를\n찾고 있어요', steps: ['고른 시설이 있는 코스만 모으고 있어요.', '걷는 시간에 맞는 코스를 정리하고 있어요.'] },
   };
   function showLoader(L, mode) {
-    const root = el('div', 'screen loader', { width: px(W), height: px(H) });
+    const root = el('div', 'screen loader', { width: px(W), height: px(DH) });
+    root.style.setProperty('--ldy', px(DY / 2));   // 가운데 내용은 기기 높이 차이의 절반만큼 옮겨 가운데를 지킨다
     const svg = '<svg class="paws" viewBox="0 0 393 240" width="393" height="240">' + PAWS.map((p, i) =>
       '<g class="paw" style="animation-delay:' + (i * 0.17).toFixed(2) + 's">' + p.map(([x, y, w, h, r]) =>
         '<ellipse transform="translate(' + x + ' ' + y + ') rotate(' + r + ')" cx="' + w / 2 + '" cy="' + h / 2 + '" rx="' + w / 2 + '" ry="' + h / 2 + '"/>').join('') + '</g>').join('') + '</svg>';
@@ -1051,7 +1127,7 @@
       '<svg class="ld-heart" viewBox="0 0 13 12"><path d="M6.5 11.8182C2.36364 8.86364 0 6.5 0 3.54545C0 1.47727 1.53636 0 3.42727 0C4.72727 0 5.90909 0.768182 6.5 1.95C7.09091 0.768182 8.27273 0 9.57273 0C11.4636 0 13 1.47727 13 3.54545C13 6.5 10.6364 8.86364 6.5 11.8182Z" fill="#F29A93"/></svg>' +
       '<i class="ld-dot"></i>' +
       '<div class="ld-title"></div><div class="ld-sub"><span></span></div>' +
-      '<div class="ld-dots"><i></i><i></i><i></i></div><i class="ld-home"></i>';
+      '<div class="ld-dots"><i></i><i></i><i></i></div><i class="ld-home" style="top:' + (DH - 14) + 'px"></i>';
     root.querySelector('.ld-title').textContent = L.title;
     const sub = root.querySelector('.ld-sub span'); sub.textContent = L.steps[0];
     const scr = { id: null, root, binds: { texts: [], vis: [] }, ctx: { map: null, afterMount: [] }, timeouts: [], timers: [], loader: true };
@@ -1182,11 +1258,40 @@
     const availW = mobile ? window.innerWidth : window.innerWidth - 48;
     const chrome = document.querySelector('header').offsetHeight + document.querySelector('footer').offsetHeight + 56;
     const availH = mobile ? window.innerHeight - padT : window.innerHeight - chrome;
-    // 휴대폰은 항상 가로를 꽉 채운다. 세로가 모자라면(사파리 주소창이 펼쳐진 경우) 페이지를 살짝 끌어 올려 보게 하고, 그러면 사파리가 주소창을 접는다
-    scale = mobile ? Math.min(availW / vw, 4) : Math.min(availW / vw, availH / vh, 1.15);
-    document.documentElement.classList.toggle('mscroll', mobile && vh * scale > availH + 1);
+    let dy = 0;
+    if (mobile) {
+      // 휴대폰: 가로를 꽉 채우고, 세로는 화면마다 빈 구간을 늘이고 줄여(자동 배치) 기기 높이에 딱 맞춘다.
+      // 줄일 수 있는 양(CAP)보다 더 짧은 기기만 남는 만큼 화면 전체를 작게 그린다(양옆은 바탕색).
+      scale = Math.min(availW / vw, 4);
+      dy = Math.floor(availH / scale - vh);
+      if (dy < -CAP) { dy = -CAP; scale = availH / (vh - CAP); }
+    } else scale = Math.min(availW / vw, availH / vh, 1.15);
+    setDY(dy);
+    document.documentElement.classList.toggle('mscroll', mobile && (vh + DY) * scale > availH + 1);
+    device.style.height = px(DH);
     device.style.transform = 'translate(' + (-cut.x * scale) + 'px,' + (-cut.t * scale) + 'px) scale(' + scale + ')';
-    stage.style.width = px(vw * scale); stage.style.height = px(vh * scale);
+    stage.style.width = px(vw * scale); stage.style.height = px((vh + DY) * scale);
+  }
+  // 기기 높이가 바뀌면(회전·주소창) 화면 배치를 다시 계산하고 지금 화면을 새 배치로 다시 그린다
+  let started = false, rebuildT = 0;
+  function setDY(dy) {
+    if (dy === DY && Object.keys(ORIG).length) return;
+    DY = dy; DH = H + dy; relayout();
+    if (started) { clearTimeout(rebuildT); rebuildT = setTimeout(rebuild, 120); }
+  }
+  function rebuild() {
+    if (!current || current.loader || swiping || !current.id) return;
+    const old = current, n = buildScreen(old.id); refresh(n);
+    if (old.sheet && n.sheet) while (old.sheet.under.firstChild) n.sheet.under.appendChild(old.sheet.under.firstChild);
+    device.insertBefore(n.root, old.root); old.root.remove(); (old.timers || []).forEach(clearTimeout);
+    current = n; n.ctx.afterMount.forEach((f) => f()); n.mounted = true;
+    if (n.ctx.swipe) enableSwipe(n);
+    startTimers(n);
+    for (const o of overlays) {
+      const m = buildScreen(o.id); refresh(m);
+      o.wrap.replaceChild(m.root, o.root); Object.assign(o, { root: m.root, binds: m.binds, ctx: m.ctx });
+      m.ctx.afterMount.forEach((f) => f());
+    }
   }
   // 맨 위 흐림 가림 띠(index.html #top-edge)는 단색이어야 사파리가 흐림 대신 그 색을 쓴다.
   // 팝업·하단 시트가 화면을 어둡게 덮으면 띠도 같은 어둡기의 단색으로 바꾼다(띠만 밝게 남지 않게).
@@ -1221,6 +1326,7 @@
     await Promise.race([Promise.all([...urls.map((u) => load(u).then(tick)), document.fonts.ready.then(tick)]), wait(8000)]);
     const spent = performance.now() - t0; if (spent < 700) await wait(700 - spent);
     await show(D.START);
+    started = true;
     COMMON.forEach((u) => load(u));
     warmFonts();
     window.history.replaceState({ navi: 0 }, '');

@@ -31,6 +31,7 @@ header span{font-size:13px;color:#62786a}
 #device{position:absolute;left:0;top:0;width:393px;height:852px;transform-origin:0 0;overflow:hidden}
 .screen{position:absolute;left:0;top:0;overflow:hidden;background:transparent;user-select:none;-webkit-user-select:none}
 .lyr{position:absolute;pointer-events:none;max-width:none}
+.lyr-flex{position:absolute;left:0;top:0;width:393px;pointer-events:none}.lyr-flex .seg{position:absolute;left:0;width:393px;overflow:hidden}
 .txt{position:absolute;pointer-events:none;font-kerning:normal;-webkit-font-smoothing:antialiased}
 .vis{position:absolute}
 .hot{position:absolute;cursor:pointer;touch-action:manipulation}
@@ -117,6 +118,7 @@ footer{font-size:12px;color:#8a9a8f}
 .ld-dots i:nth-child(2){background:#FFD84D;animation-delay:.15s}
 .ld-dots i:nth-child(3){background:#9CC5D4;animation-delay:.3s}
 @keyframes hop{0%,60%,100%{transform:none}30%{transform:translateY(-8px) scale(1.08)}}
+.loader>*:not(.ld-status):not(.ld-bar):not(.ld-home){margin-top:var(--ldy,0px)}
 .ld-home{left:130px;top:838px;width:134px;height:5px;border-radius:99px;background:#2E4637}
 @media (prefers-reduced-motion:reduce){.paw,.ld-dog,.ld-shadow,.ld-sparkle,.ld-heart,.ld-dot,.ld-dots i{animation:none}.paw{opacity:1}}
 /* 지도: 현재 위치 버튼·내 위치 */
@@ -174,6 +176,7 @@ body.mobile #stage{border-radius:0;box-shadow:none;background:#FFFBEF;flex:none}
 <script src="data.js?v=12"></script>
 <script src="map/maps.js?v=8"></script>
 <script src="lqip.js?v=8"></script>
-<script src="player.js?v=19"></script>
+<script src="flex.js?v=1"></script>
+<script src="player.js?v=20"></script>
 </body>
 </html>
