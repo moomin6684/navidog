@@ -8,17 +8,17 @@
   // ---------- 기기 높이에 맞추는 자동 배치 ----------
   // 화면 그림은 393×852 한 장이라 그대로는 기기마다 세로가 남거나 모자란다. 화면마다 비어 있는 세로 구간(flex.js)을 늘이고 줄여 기기 높이에 맞춘다.
   // 머리글(구간 위)은 그대로, 구간 아래 요소(하단 버튼·바)는 그만큼 위아래로 옮긴다. 줄일 때는 구간 그림을 세로로 눌러 담고, 늘일 때는 가장 큰 구간 가운데에 빈 줄 색을 채운다.
-  const FLEX = window.FLEX || {}, FREE = window.FLEX_FREE || {};
+  const FLEX = window.FLEX || {};
   const SQUASH = 0.4;   // 구간은 따로 정하지 않으면 원래 높이의 40%까지만 누른다
   const capOf = (b) => (b[1] - b[0]) * (1 - (b[4] != null ? b[4] : SQUASH));
   // 모든 화면이 줄일 수 있는 양 중 가장 작은 값 — 이보다 더 짧은 기기는 남는 만큼 화면 전체를 조금 작게 그린다
-  const CAP = Math.floor(Math.min(...Object.entries(FLEX).map(([id, bs]) => bs.reduce((t, b) => t + capOf(b), 0) + (FREE[id] ? FREE[id][0] : 0))));
+  const CAP = Math.floor(Math.min(...Object.values(FLEX).map((bs) => bs.reduce((t, b) => t + capOf(b), 0))));
   let DY = 0, DH = H, CARD_OFF = 0;
   const ORIG = {}, PLAN = {};
   function plan(id) {
     const bs = FLEX[id]; if (!bs || !DY) return null;
     const len = bs.map((b) => b[1] - b[0]), cap = bs.map(capOf), tot = cap.reduce((a, b) => a + b, 0), big = len.indexOf(Math.max(...len));
-    // 줄일 때는 구간마다 줄일 수 있는 양에 비례해 나누고, 그래도 남으면(카드 화면) 맨 아래 안내 문구 자리를 잘라 낸다
+    // 줄일 때는 구간마다 줄일 수 있는 양에 비례해 나눈다(내용은 하나도 가리지 않는다)
     return bs.map((b, i) => ({ a: b[0], b: b[1], col: b[2], art: b[3] === 'a',
       d: DY < 0 ? Math.max(-cap[i], DY * cap[i] / tot) : (i === big ? DY : 0) }));
   }
@@ -669,9 +669,6 @@
       y = s.b;
     }
     seg(y, H, 1);
-    // 맨 아래를 잘라 내야 할 만큼 짧으면 반쯤 잘린 안내 문구가 남지 않게 바탕색으로 덮는다(위에 뜨는 바는 그대로 보인다)
-    const fr = FREE[id], used = p.reduce((t, s) => t + s.d, 0);
-    if (first && fr && DY - used < -5) box.appendChild(el('div', 'seg', { top: px(f(fr[1])), height: px(DH - f(fr[1])), background: p[p.length - 1].col }));
     return box;
   }
 
@@ -1251,8 +1248,8 @@
   function fit() {
     const mobile = window.matchMedia('(max-width: 600px)').matches;
     document.body.classList.toggle('mobile', mobile);
-    // 휴대폰에서는 그림 속 가짜 상태 표시줄(위 54)·홈 막대(아래 28)·둥근 모서리(양옆 2)를 잘라 실제 앱처럼 화면만 보이게 한다
-    const cut = mobile ? { t: 54, b: 28, x: 2 } : { t: 0, b: 0, x: 0 };
+    // 휴대폰에서는 그림 속 가짜 상태 표시줄(위 54)·홈 막대(아래 24 — 맨 아래 안내 문구 글자가 끝에 걸리지 않게 28에서 줄임)·둥근 모서리(양옆 2)를 잘라 실제 앱처럼 화면만 보이게 한다
+    const cut = mobile ? { t: 54, b: 24, x: 2 } : { t: 0, b: 0, x: 0 };
     const vw = W - cut.x * 2, vh = H - cut.t - cut.b;
     const padT = mobile ? parseFloat(getComputedStyle(document.body).paddingTop) || 0 : 0;
     const availW = mobile ? window.innerWidth : window.innerWidth - 48;
