@@ -851,6 +851,8 @@
       if (!st.on) {
         if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
           st.on = true; swiping = true;
+          // 끌기 시작하면 카드 누름 표시(옅은 회색 둥근 박스)를 끈다 — 띠가 박스 대부분을 덮고 띠 위로 윗부분만 남아 가로선처럼 보인다
+          root.classList.add('swiping');
           try { root.setPointerCapture(e.pointerId); } catch (er) {}
           const parts = [[root, 0, id]];
           for (const [k, off] of [['next', W], ['prev', -W]]) if (nb[k]) { const n = buildScreen(nb[k].d); refresh(n); parts.push([n.root, off, nb[k].d]); }
@@ -876,13 +878,13 @@
       else if (nb.prev && (s.d > W * 0.2 || (v > 0.35 && s.d > 10))) dir = -1;
       if (!dir) {
         const a = anim(s.fx.track, [{ transform: 'translate3d(' + s.d + 'px,0,0)' }, { transform: 'none' }], 320);
-        settled(a).then(() => { s.fx.remove(); swiping = false; });
+        settled(a).then(() => { s.fx.remove(); swiping = false; root.classList.remove('swiping'); });
         return;
       }
       if (navigator.vibrate) navigator.vibrate(6);
       swipeHint = { fx: s.fx, d: s.d, dir };
       run(A[nb[dir > 0 ? 'next' : 'prev'].k].a);
-      if (swipeHint) { s.fx.remove(); swipeHint = null; swiping = false; }
+      if (swipeHint) { s.fx.remove(); swipeHint = null; swiping = false; root.classList.remove('swiping'); }
     };
     root.addEventListener('click', (e) => { if (eatClick) { e.stopPropagation(); e.preventDefault(); eatClick = false; } }, true);
   }

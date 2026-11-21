@@ -46,6 +46,7 @@ footer{font-size:12px;color:#8a9a8f}
 /* 눌림 피드백 */
 .hot{transition:background-color .12s ease;border-radius:14px}
 .hot:not(.full):active{background-color:rgba(31,74,45,.08)}
+.screen.swiping .hot,.swipe-band .hot{background-color:transparent!important;transition:none}
 /* 지도 */
 .map{position:absolute;overflow:hidden;touch-action:none;background:#F6F0DF;cursor:grab;contain:strict}
 .map.moving{cursor:grabbing}
@@ -165,6 +166,6 @@ body.mobile #stage{border-radius:0;box-shadow:none;background:#FFF9EC;flex:none}
 <script src="data.js?v=12"></script>
 <script src="map/maps.js?v=8"></script>
 <script src="lqip.js?v=8"></script>
-<script src="player.js?v=16"></script>
+<script src="player.js?v=17"></script>
 </body>
 </html>
