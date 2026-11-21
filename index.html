@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="내비독">
 <link rel="preload" href="fonts/MaplestoryBold.woff" as="font" type="font/woff" crossorigin>
-<meta name="theme-color" content="#FFF8E7">
+<meta name="theme-color" content="#FFFBEF">
 <title>내비독 · 강아지 산책 코스 내비게이션 프로토타입</title>
 <meta name="description" content="오늘도 같이, 동네 한 바퀴. 우리 강아지에게 맞는 산책 코스를 추천하고 길을 안내하는 내비독 프로토타입">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -145,11 +145,18 @@ footer{font-size:12px;color:#8a9a8f}
 .hot.sheet-close{border-radius:50%}
 .sheet-close span{display:flex;width:36px;height:36px;margin:4px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px #DCEBD5;align-items:center;justify-content:center;color:#183B30}
 @media (prefers-reduced-motion:reduce){.map.follow .me-halo i{animation:none}}
-body.mobile{gap:0;background:#FFF9EC;padding:env(safe-area-inset-top) 0 0;justify-content:flex-start}
+/* 아이폰 iOS 26은 상태 표시줄 아래 약 32~40pt를 늘 흐리게 덮는다(홈 화면 앱·사파리 주소창 접힘). CSS로 끌 수 없어서
+   ① 앱 화면을 그 흐림 구간 아래에서 시작하고 ② 그 구간을 바탕색 단색 띠(고정·가로 전체·누름 받음)로 덮어 사파리가 흐림 대신 단색을 쓰게 한다.
+   clamp(… * 100 …)은 위쪽 안전 영역이 0일 때(상태 표시줄이 페이지 밖) 0이 되게 한다. */
+:root{--blur-clear:0px;--top-edge:env(safe-area-inset-top,0px)}
+@supports (-webkit-touch-callout:none){:root{--blur-clear:clamp(0px,calc(env(safe-area-inset-top,0px) * 100),40px);--top-edge:calc(env(safe-area-inset-top,0px) + var(--blur-clear))}}
+#top-edge{display:none}
+body.mobile #top-edge{display:block;position:fixed;left:0;right:0;top:0;height:var(--top-edge);background:#FFFBEF;z-index:45;transition:background-color .2s ease}
+body.mobile{gap:0;background:#FFFBEF;padding:var(--top-edge) 0 0;justify-content:flex-start}
 body.mobile header,body.mobile footer{display:none}
 /* 세로가 모자랄 때는 페이지 자체가 아니라 body 안에서만 스크롤한다 — 페이지가 밀리면 사파리가 위쪽을 흐리게 덮는다 */
 html.mscroll body{overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}
-body.mobile #stage{border-radius:0;box-shadow:none;background:#FFF9EC;flex:none}
+body.mobile #stage{border-radius:0;box-shadow:none;background:#FFFBEF;flex:none}
 .dog{position:absolute;pointer-events:none}
 .dog-pl{position:absolute;left:0;top:0;width:100%;height:100%}
 .dog-win{position:absolute;overflow:hidden}
@@ -159,6 +166,7 @@ body.mobile #stage{border-radius:0;box-shadow:none;background:#FFF9EC;flex:none}
 </head>
 <body>
 <div id="splash"><div class="logo"></div><h2>내비독</h2><p>오늘도 같이, 동네 한 바퀴</p><div class="bar"><i></i></div></div>
+<div id="top-edge" aria-hidden="true"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <header><h1>내비독</h1><span>강아지 산책 코스 내비게이션 · 프로토타입</span><button id="restart">처음부터</button></header>
 <div id="stage"><div id="device"></div></div>
@@ -166,6 +174,6 @@ body.mobile #stage{border-radius:0;box-shadow:none;background:#FFF9EC;flex:none}
 <script src="data.js?v=12"></script>
 <script src="map/maps.js?v=8"></script>
 <script src="lqip.js?v=8"></script>
-<script src="player.js?v=17"></script>
+<script src="player.js?v=18"></script>
 </body>
 </html>

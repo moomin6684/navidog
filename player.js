@@ -1188,6 +1188,16 @@
     device.style.transform = 'translate(' + (-cut.x * scale) + 'px,' + (-cut.t * scale) + 'px) scale(' + scale + ')';
     stage.style.width = px(vw * scale); stage.style.height = px(vh * scale);
   }
+  // 맨 위 흐림 가림 띠(index.html #top-edge)는 단색이어야 사파리가 흐림 대신 그 색을 쓴다.
+  // 팝업·하단 시트가 화면을 어둡게 덮으면 띠도 같은 어둡기의 단색으로 바꾼다(띠만 밝게 남지 않게).
+  const topEdge = document.getElementById('top-edge');
+  const EDGE = { base: '#FFFBEF', pop: 'rgb(200,205,194)', sheet: 'rgb(156,161,150)' };  // 화면 바탕 #FFFBEF 위 팝업 어둡게(#193B32 24%)·시트 어둡게(#14241C 42%)
+  function syncEdge() {
+    const sheet = device.querySelector('.sheet-dim');
+    const pop = overlays.some((o) => !o.toast);
+    topEdge.style.background = sheet ? EDGE.sheet : pop ? EDGE.pop : EDGE.base;
+  }
+  new MutationObserver(syncEdge).observe(device, { childList: true });
   window.addEventListener('resize', fit);
   window.addEventListener('orientationchange', () => setTimeout(fit, 300));
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
